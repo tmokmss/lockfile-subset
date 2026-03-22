@@ -4,12 +4,13 @@ import { execSync } from 'child_process'
 import { createRequire } from 'module'
 import { extractSubset } from './extract.js'
 import { extractPnpmSubset } from './extract-pnpm.js'
+import { extractYarnSubset } from './extract-yarn.js'
 import { writeOutput, type AnyExtractResult } from './write.js'
 
 const require = createRequire(import.meta.url)
 const { version: VERSION } = require('../package.json')
 
-type LockfileType = 'npm' | 'pnpm'
+type LockfileType = 'npm' | 'pnpm' | 'yarn'
 
 interface CliArgs {
   packages: string[]
@@ -87,11 +88,14 @@ function resolveLockfile(lockfilePath: string): ResolvedLockfile {
     if (existsSync(resolve('pnpm-lock.yaml'))) {
       return { projectPath: resolve('.'), type: 'pnpm' }
     }
+    if (existsSync(resolve('yarn.lock'))) {
+      return { projectPath: resolve('.'), type: 'yarn' }
+    }
     if (existsSync(resolve('package-lock.json'))) {
       return { projectPath: resolve('.'), type: 'npm' }
     }
     throw new Error(
-      'No lockfile found in current directory. Expected package-lock.json or pnpm-lock.yaml.',
+      'No lockfile found in current directory. Expected package-lock.json, pnpm-lock.yaml, or yarn.lock.',
     )
   }
 
@@ -102,19 +106,22 @@ function resolveLockfile(lockfilePath: string): ResolvedLockfile {
   if (basename === 'pnpm-lock.yaml') {
     return { projectPath: resolve(resolved, '..'), type: 'pnpm' }
   }
+  if (basename === 'yarn.lock') {
+    return { projectPath: resolve(resolved, '..'), type: 'yarn' }
+  }
   if (basename === 'package-lock.json') {
     return { projectPath: resolve(resolved, '..'), type: 'npm' }
   }
   throw new Error(
-    `Invalid lockfile path: ${lockfilePath}. Expected a path to package-lock.json or pnpm-lock.yaml.`,
+    `Invalid lockfile path: ${lockfilePath}. Expected a path to package-lock.json, pnpm-lock.yaml, or yarn.lock.`,
   )
 }
 
 const HELP = `
 lockfile-subset <packages...> [options]
 
-Extract a subset of package-lock.json or pnpm-lock.yaml for specified packages
-and their transitive dependencies.
+Extract a subset of package-lock.json, pnpm-lock.yaml, or yarn.lock for specified
+packages and their transitive dependencies.
 
 Arguments:
   packages                  Package names to extract (one or more, space-separated)
@@ -123,7 +130,7 @@ Options:
   --lockfile, -l <path>     Path to lockfile (auto-detected from cwd by default)
   --output, -o <dir>        Output directory (default: ./lockfile-subset-output)
   --no-optional             Exclude optional dependencies
-  --install                 Run npm ci / pnpm install --frozen-lockfile after generating
+  --install                 Run npm ci / pnpm install / yarn install after generating
   --dry-run                 Print the result without writing files
   --version, -v             Show version
   --help, -h                Show this help
@@ -166,6 +173,12 @@ async function main() {
       packageNames: args.packages,
       includeOptional: args.includeOptional,
     })
+  } else if (type === 'yarn') {
+    result = await extractYarnSubset({
+      projectPath,
+      packageNames: args.packages,
+      includeOptional: args.includeOptional,
+    })
   } else {
     result = await extractSubset({
       projectPath,
@@ -184,10 +197,13 @@ async function main() {
     if (result.type === 'npm') {
       console.log('\n--- package-lock.json ---')
       console.log(JSON.stringify(result.lockfileJson, null, 2))
-    } else {
+    } else if (result.type === 'pnpm') {
       const yaml = (await import('js-yaml')).default
       console.log('\n--- pnpm-lock.yaml ---')
       console.log(yaml.dump(result.lockfileYaml, { lineWidth: -1, noCompatMode: true }))
+    } else {
+      console.log('\n--- yarn.lock ---')
+      console.log(result.lockfileContent)
     }
     return
   }
@@ -199,6 +215,14 @@ async function main() {
     if (type === 'pnpm') {
       console.log('Running pnpm install --frozen-lockfile...')
       execSync('pnpm install --frozen-lockfile', { cwd: outputDir, stdio: 'inherit' })
+    } else if (type === 'yarn') {
+      if (result.type === 'yarn' && result.yarnVersion === 1) {
+        console.log('Running yarn install --frozen-lockfile...')
+        execSync('yarn install --frozen-lockfile', { cwd: outputDir, stdio: 'inherit' })
+      } else {
+        console.log('Running yarn install --immutable...')
+        execSync('yarn install --immutable', { cwd: outputDir, stdio: 'inherit' })
+      }
     } else {
       console.log('Running npm ci...')
       execSync('npm ci', { cwd: outputDir, stdio: 'inherit' })
