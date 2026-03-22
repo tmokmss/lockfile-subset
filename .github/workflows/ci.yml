@@ -14,7 +14,17 @@ jobs:
         with:
           node-version: '22'
 
-      - run: npm install -g pnpm
+      - run: npm install -g pnpm yarn
       - run: npm ci
       - run: npm run build
       - run: npm test
+
+      # Smoke test: verify the built CLI actually runs
+      - name: CLI smoke test (npm lockfile)
+        run: npx lockfile-subset chalk --dry-run -l test/fixtures/lockfile-v3/package-lock.json
+      - name: CLI smoke test (pnpm lockfile)
+        run: npx lockfile-subset chalk --dry-run -l test/fixtures/pnpm-v9/pnpm-lock.yaml
+      - name: CLI smoke test (yarn v1 lockfile)
+        run: npx lockfile-subset chalk --dry-run -l test/fixtures/yarn-v1/yarn.lock
+      - name: CLI smoke test (yarn berry lockfile)
+        run: npx lockfile-subset chalk --dry-run -l test/fixtures/yarn-berry/yarn.lock
