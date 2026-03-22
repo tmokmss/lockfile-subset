@@ -8,6 +8,7 @@ export interface ExtractOptions {
 }
 
 export interface ExtractResult {
+  type: 'npm'
   packageJson: {
     name: string
     version: string
@@ -93,6 +94,7 @@ export async function extractSubset({
   }))
 
   return {
+    type: 'npm',
     packageJson: {
       name: 'lockfile-subset-output',
       version: '1.0.0',

@@ -1,6 +1,6 @@
 # lockfile-subset
 
-Extract a subset of `package-lock.json` for specified packages and their transitive dependencies.
+Extract a subset of `package-lock.json` or `pnpm-lock.yaml` for specified packages and their transitive dependencies.
 
 ## Why?
 
@@ -11,8 +11,9 @@ When using bundlers like esbuild with `--external`, you need to ship those exter
 | Manually copy `node_modules` dirs | Breaks when transitive deps change (e.g., Prisma v6 added new deps) |
 | `npm install <pkg>` in runner stage | Resolves versions independently — may differ from your lockfile |
 | `npm ci --omit=dev` | Installs *all* prod dependencies, not just the ones you need |
+| `pnpm deploy` | Only works with workspaces, not arbitrary packages |
 
-**lockfile-subset** solves this by extracting a precise subset from your existing `package-lock.json` — only the packages you specify and their transitive dependencies, with versions exactly matching the original lockfile.
+**lockfile-subset** solves this by extracting a precise subset from your existing lockfile — only the packages you specify and their transitive dependencies, with versions exactly matching the original lockfile.
 
 ## Install
 
@@ -32,16 +33,19 @@ lockfile-subset @prisma/client sharp
 lockfile-subset @prisma/client sharp -o /standalone
 
 # Use a different lockfile path
-lockfile-subset @prisma/client sharp --lockfile /build/package-lock.json
+lockfile-subset @prisma/client sharp -l /build/package-lock.json
+
+# Use a pnpm lockfile
+lockfile-subset @prisma/client sharp -l pnpm-lock.yaml
 
 # Generate + install in one step
 lockfile-subset @prisma/client sharp -o /standalone --install
 
 # Preview without writing files
-lockfile-subset prisma --dry-run
+lockfile-subset chalk --dry-run
 ```
 
-This generates a minimal `package.json` and `package-lock.json` in the output directory. Then run `npm ci` to install exactly those packages at the exact versions from your original lockfile.
+The lockfile type (npm or pnpm) is auto-detected from the project directory. This generates a minimal `package.json` and lockfile in the output directory. Then run `npm ci` or `pnpm install --frozen-lockfile` to install exactly those packages.
 
 ### Dockerfile example
 
@@ -73,35 +77,27 @@ CMD ["node", "dist/index.js"]
 
 ### Options
 
-```
-lockfile-subset <packages...> [options]
-
-Arguments:
-  packages                  Package names to extract (space-separated)
-
-Options:
-  --lockfile, -l <path>     Path to project directory (default: .)
-  --output, -o <dir>        Output directory (default: ./lockfile-subset-output)
-  --no-optional             Exclude optional dependencies
-  --install                 Run npm ci after generating the subset
-  --dry-run                 Print the result without writing files
-  --version, -v             Show version
-  --help, -h                Show help
-```
+Run `lockfile-subset --help` for the full list of options.
 
 ## How it works
 
-1. Loads your `package-lock.json` using [`@npmcli/arborist`](https://github.com/npm/cli/tree/latest/workspaces/arborist) (npm's own dependency resolver)
+1. Loads your lockfile (`package-lock.json` via [@npmcli/arborist](https://github.com/npm/cli/tree/latest/workspaces/arborist), or `pnpm-lock.yaml` directly)
 2. Starting from the specified packages, walks the dependency tree via BFS to collect all transitive dependencies
 3. Copies the matching entries from the original lockfile — no re-resolution, no version drift
-4. Outputs a minimal `package.json` + `package-lock.json` ready for `npm ci`
+4. Outputs a minimal `package.json` + lockfile ready for `npm ci` or `pnpm install --frozen-lockfile`
 
 Dev dependencies of each package are excluded from traversal. Optional dependencies are included by default (use `--no-optional` to exclude).
 
+## Supported lockfile formats
+
+| Package manager | Lockfile | Supported versions |
+|---|---|---|
+| npm | `package-lock.json` | v2 (npm 7-8), v3 (npm 9+) |
+| pnpm | `pnpm-lock.yaml` | v9 (pnpm 9-10) |
+
 ## Limitations
 
-- **Lockfile v2/v3 only** — Requires npm 7+ (lockfile v2 or v3). The legacy v1 format (npm 5-6) is not supported.
-- **npm only** — pnpm and yarn have different lockfile formats. pnpm users can use `pnpm deploy`; yarn users can use `yarn workspaces focus`.
+- **yarn is not supported** — yarn users can use `yarn workspaces focus`.
 - **Platform-specific optional deps** — Packages like `sharp` have OS/arch-specific optional dependencies (e.g., `@img/sharp-linux-x64`). If your lockfile was generated on macOS but you run `npm ci` on Linux (e.g., in Docker), those Linux-specific packages may be missing from the lockfile. In that case, generate the lockfile on the target platform, or use `npm install` instead of `npm ci`.
 
 ## License

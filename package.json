@@ -16,6 +16,7 @@
   },
   "keywords": [
     "npm",
+    "pnpm",
     "lockfile",
     "package-lock",
     "subset",
@@ -33,6 +34,7 @@
   "devDependencies": {
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/git": "^10.0.1",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.5.0",
     "@types/npmcli__arborist": "^6.3.3",
     "semantic-release": "^25.0.3",
@@ -41,6 +43,7 @@
     "vitest": "^4.1.0"
   },
   "dependencies": {
-    "@npmcli/arborist": "^9.4.2"
+    "@npmcli/arborist": "^9.4.2",
+    "js-yaml": "^4.1.1"
   }
 }
