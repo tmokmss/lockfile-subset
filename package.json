@@ -1,6 +1,6 @@
 {
   "name": "lockfile-subset",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Extract a subset of package-lock.json, pnpm-lock.yaml, or yarn.lock for specified packages and their transitive dependencies",
   "type": "module",
   "bin": {
