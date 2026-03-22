@@ -1,6 +1,6 @@
 # lockfile-subset
 
-Extract a subset of `package-lock.json` or `pnpm-lock.yaml` for specified packages and their transitive dependencies.
+Extract a subset of `package-lock.json`, `pnpm-lock.yaml`, or `yarn.lock` for specified packages and their transitive dependencies.
 
 ## Why?
 
@@ -38,6 +38,9 @@ lockfile-subset @prisma/client sharp -l /build/package-lock.json
 # Use a pnpm lockfile
 lockfile-subset @prisma/client sharp -l pnpm-lock.yaml
 
+# Use a yarn lockfile
+lockfile-subset @prisma/client sharp -l yarn.lock
+
 # Generate + install in one step
 lockfile-subset @prisma/client sharp -o /standalone --install
 
@@ -45,7 +48,7 @@ lockfile-subset @prisma/client sharp -o /standalone --install
 lockfile-subset chalk --dry-run
 ```
 
-The lockfile type (npm or pnpm) is auto-detected from the project directory. This generates a minimal `package.json` and lockfile in the output directory. Then run `npm ci` or `pnpm install --frozen-lockfile` to install exactly those packages.
+The lockfile type (npm, pnpm, or yarn) is auto-detected from the project directory. This generates a minimal `package.json` and lockfile in the output directory. Then run `npm ci`, `pnpm install --frozen-lockfile`, or `yarn install --frozen-lockfile` to install exactly those packages.
 
 ### Dockerfile example
 
@@ -81,10 +84,10 @@ Run `lockfile-subset --help` for the full list of options.
 
 ## How it works
 
-1. Loads your lockfile (`package-lock.json` via [@npmcli/arborist](https://github.com/npm/cli/tree/latest/workspaces/arborist), or `pnpm-lock.yaml` directly)
+1. Loads your lockfile (`package-lock.json` via [@npmcli/arborist](https://github.com/npm/cli/tree/latest/workspaces/arborist), `pnpm-lock.yaml`, or `yarn.lock` directly)
 2. Starting from the specified packages, walks the dependency tree via BFS to collect all transitive dependencies
 3. Copies the matching entries from the original lockfile — no re-resolution, no version drift
-4. Outputs a minimal `package.json` + lockfile ready for `npm ci` or `pnpm install --frozen-lockfile`
+4. Outputs a minimal `package.json` + lockfile ready for `npm ci`, `pnpm install --frozen-lockfile`, or `yarn install --frozen-lockfile`
 
 Dev dependencies of each package are excluded from traversal. Optional dependencies are included by default (use `--no-optional` to exclude).
 
@@ -94,10 +97,9 @@ Dev dependencies of each package are excluded from traversal. Optional dependenc
 |---|---|---|
 | npm | `package-lock.json` | v2 (npm 7-8), v3 (npm 9+) |
 | pnpm | `pnpm-lock.yaml` | v9 (pnpm 9-10) |
+| yarn | `yarn.lock` | v1 (Classic), v2+ (Berry) |
 
 ## Limitations
-
-- **yarn is not supported** — yarn users can use `yarn workspaces focus`.
 - **Platform-specific optional deps** — Packages like `sharp` have OS/arch-specific optional dependencies (e.g., `@img/sharp-linux-x64`). If your lockfile was generated on macOS but you run `npm ci` on Linux (e.g., in Docker), those Linux-specific packages may be missing from the lockfile. In that case, generate the lockfile on the target platform, or use `npm install` instead of `npm ci`.
 
 ## License
