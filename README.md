@@ -100,6 +100,7 @@ Dev dependencies of each package are excluded from traversal. Optional dependenc
 
 ## Limitations
 
+- **Lockfile v2/v3 only** — Requires npm 7+ (lockfile v2 or v3). The legacy v1 format (npm 5-6) is not supported.
 - **npm only** — pnpm and yarn have different lockfile formats. pnpm users can use `pnpm deploy`; yarn users can use `yarn workspaces focus`.
 - **Platform-specific optional deps** — Packages like `sharp` have OS/arch-specific optional dependencies (e.g., `@img/sharp-linux-x64`). If your lockfile was generated on macOS but you run `npm ci` on Linux (e.g., in Docker), those Linux-specific packages may be missing from the lockfile. In that case, generate the lockfile on the target platform, or use `npm install` instead of `npm ci`.
 

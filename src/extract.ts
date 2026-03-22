@@ -32,6 +32,13 @@ export async function extractSubset({
   const arb = new Arborist({ path: projectPath })
   const tree = await arb.loadVirtual()
 
+  const originalLockfileVersion = (tree.meta as any).originalLockfileVersion
+  if (originalLockfileVersion < 2) {
+    throw new Error(
+      `Lockfile version ${originalLockfileVersion} is not supported. Please upgrade to npm 7+ (lockfile v2/v3) by running: npm install --package-lock-only`,
+    )
+  }
+
   // BFS to collect transitive deps
   const keep = new Set<Node>()
 
