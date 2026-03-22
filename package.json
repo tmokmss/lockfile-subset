@@ -26,6 +26,9 @@
     "type": "git",
     "url": "git+https://github.com/tmokmss/lockfile-subset.git"
   },
+  "publishConfig": {
+    "provenance": true
+  },
   "license": "MIT",
   "devDependencies": {
     "@semantic-release/changelog": "^6.0.3",
