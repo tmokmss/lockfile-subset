@@ -1,6 +1,6 @@
 {
   "name": "lockfile-subset",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Extract a subset of package-lock.json for specified packages and their transitive dependencies",
   "type": "module",
   "bin": {

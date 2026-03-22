@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/tmokmss/lockfile-subset/compare/v1.0.2...v1.1.0) (2026-03-22)
+
+
+### Features
+
+* add pnpm lockfile support ([#5](https://github.com/tmokmss/lockfile-subset/issues/5)) ([6a21d77](https://github.com/tmokmss/lockfile-subset/commit/6a21d77f95551c16918a7a7ac6cdba72c89b3834))
+
 ## [1.0.2](https://github.com/tmokmss/lockfile-subset/compare/v1.0.1...v1.0.2) (2026-03-22)
 
 ## [1.0.1](https://github.com/tmokmss/lockfile-subset/compare/v1.0.0...v1.0.1) (2026-03-22)
