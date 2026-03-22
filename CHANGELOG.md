@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/tmokmss/lockfile-subset/compare/v1.1.0...v1.2.0) (2026-03-22)
+
+
+### Features
+
+* add yarn lockfile support ([#6](https://github.com/tmokmss/lockfile-subset/issues/6)) ([b2dc28b](https://github.com/tmokmss/lockfile-subset/commit/b2dc28bd5cf675345ce8a62f06f1d6b6e170f549))
+
 # [1.1.0](https://github.com/tmokmss/lockfile-subset/compare/v1.0.2...v1.1.0) (2026-03-22)
 
 
