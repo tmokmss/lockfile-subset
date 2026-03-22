@@ -1,11 +1,15 @@
 import { resolve } from 'path'
+import { existsSync } from 'fs'
 import { execSync } from 'child_process'
 import { createRequire } from 'module'
 import { extractSubset } from './extract.js'
-import { writeOutput } from './write.js'
+import { extractPnpmSubset } from './extract-pnpm.js'
+import { writeOutput, type AnyExtractResult } from './write.js'
 
 const require = createRequire(import.meta.url)
 const { version: VERSION } = require('../package.json')
+
+type LockfileType = 'npm' | 'pnpm'
 
 interface CliArgs {
   packages: string[]
@@ -21,7 +25,7 @@ interface CliArgs {
 function parseArgs(argv: string[]): CliArgs {
   const args: CliArgs = {
     packages: [],
-    lockfile: '.',
+    lockfile: '',
     output: './lockfile-subset-output',
     includeOptional: true,
     install: false,
@@ -72,29 +76,64 @@ function parseArgs(argv: string[]): CliArgs {
   return args
 }
 
+interface ResolvedLockfile {
+  projectPath: string
+  type: LockfileType
+}
+
+function resolveLockfile(lockfilePath: string): ResolvedLockfile {
+  // Auto-detect from cwd
+  if (!lockfilePath) {
+    if (existsSync(resolve('pnpm-lock.yaml'))) {
+      return { projectPath: resolve('.'), type: 'pnpm' }
+    }
+    if (existsSync(resolve('package-lock.json'))) {
+      return { projectPath: resolve('.'), type: 'npm' }
+    }
+    throw new Error(
+      'No lockfile found in current directory. Expected package-lock.json or pnpm-lock.yaml.',
+    )
+  }
+
+  // Explicit file path
+  const resolved = resolve(lockfilePath)
+  const basename = resolved.split('/').pop()!
+
+  if (basename === 'pnpm-lock.yaml') {
+    return { projectPath: resolve(resolved, '..'), type: 'pnpm' }
+  }
+  if (basename === 'package-lock.json') {
+    return { projectPath: resolve(resolved, '..'), type: 'npm' }
+  }
+  throw new Error(
+    `Invalid lockfile path: ${lockfilePath}. Expected a path to package-lock.json or pnpm-lock.yaml.`,
+  )
+}
+
 const HELP = `
 lockfile-subset <packages...> [options]
 
-Extract a subset of package-lock.json for specified packages and their transitive dependencies.
+Extract a subset of package-lock.json or pnpm-lock.yaml for specified packages
+and their transitive dependencies.
 
 Arguments:
   packages                  Package names to extract (one or more, space-separated)
 
 Options:
-  --lockfile, -l <path>     Path to project dir or package-lock.json (default: .)
+  --lockfile, -l <path>     Path to lockfile (auto-detected from cwd by default)
   --output, -o <dir>        Output directory (default: ./lockfile-subset-output)
   --no-optional             Exclude optional dependencies
-  --install                 Run npm ci after generating the subset
+  --install                 Run npm ci / pnpm install --frozen-lockfile after generating
   --dry-run                 Print the result without writing files
   --version, -v             Show version
   --help, -h                Show this help
 
 Examples:
-  lockfile-subset prisma sharp
-  lockfile-subset prisma sharp -o /lambda-standalone
-  lockfile-subset prisma sharp --lockfile /build/package-lock.json
-  lockfile-subset prisma sharp -o /lambda-standalone --install
-  lockfile-subset prisma --dry-run
+  lockfile-subset @prisma/client sharp
+  lockfile-subset @prisma/client sharp -o /standalone
+  lockfile-subset @prisma/client sharp -l /build/package-lock.json
+  lockfile-subset @prisma/client sharp -l pnpm-lock.yaml --install
+  lockfile-subset chalk --dry-run
 `.trim()
 
 async function main() {
@@ -116,14 +155,24 @@ async function main() {
     process.exit(1)
   }
 
-  const projectPath = resolve(args.lockfile)
+  const { projectPath, type } = resolveLockfile(args.lockfile)
   const outputDir = resolve(args.output)
 
-  const result = await extractSubset({
-    projectPath,
-    packageNames: args.packages,
-    includeOptional: args.includeOptional,
-  })
+  let result: AnyExtractResult
+
+  if (type === 'pnpm') {
+    result = await extractPnpmSubset({
+      projectPath,
+      packageNames: args.packages,
+      includeOptional: args.includeOptional,
+    })
+  } else {
+    result = await extractSubset({
+      projectPath,
+      packageNames: args.packages,
+      includeOptional: args.includeOptional,
+    })
+  }
 
   console.log(
     `Collected ${result.collected.length} packages (${args.packages.length} direct, ${result.collected.length - args.packages.length} transitive)`,
@@ -132,8 +181,14 @@ async function main() {
   if (args.dryRun) {
     console.log('\n--- package.json ---')
     console.log(JSON.stringify(result.packageJson, null, 2))
-    console.log('\n--- package-lock.json ---')
-    console.log(JSON.stringify(result.lockfileJson, null, 2))
+    if (result.type === 'npm') {
+      console.log('\n--- package-lock.json ---')
+      console.log(JSON.stringify(result.lockfileJson, null, 2))
+    } else {
+      const yaml = (await import('js-yaml')).default
+      console.log('\n--- pnpm-lock.yaml ---')
+      console.log(yaml.dump(result.lockfileYaml, { lineWidth: -1, noCompatMode: true }))
+    }
     return
   }
 
@@ -141,8 +196,13 @@ async function main() {
   console.log(`Written to ${outputDir}`)
 
   if (args.install) {
-    console.log('Running npm ci...')
-    execSync('npm ci', { cwd: outputDir, stdio: 'inherit' })
+    if (type === 'pnpm') {
+      console.log('Running pnpm install --frozen-lockfile...')
+      execSync('pnpm install --frozen-lockfile', { cwd: outputDir, stdio: 'inherit' })
+    } else {
+      console.log('Running npm ci...')
+      execSync('npm ci', { cwd: outputDir, stdio: 'inherit' })
+    }
     console.log('Done.')
   }
 }
