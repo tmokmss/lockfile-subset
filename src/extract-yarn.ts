@@ -3,6 +3,9 @@ import { join } from 'path'
 import { createRequire } from 'module'
 import yaml from 'js-yaml'
 
+// @yarnpkg/lockfile is CJS-only. A normal default import works after bundling (tsdown handles
+// CJS interop), but breaks under vitest's native ESM loader where the named exports land on
+// `default.default`. Using createRequire avoids the mismatch in both environments.
 const require = createRequire(import.meta.url)
 const { parse: parseYarnLockV1, stringify: stringifyYarnLockV1 } = require('@yarnpkg/lockfile')
 
