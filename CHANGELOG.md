@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/tmokmss/lockfile-subset/compare/v1.2.1...v1.3.0) (2026-05-12)
+
+
+### Features
+
+* add monorepo (workspace) support for npm, pnpm, and yarn ([#9](https://github.com/tmokmss/lockfile-subset/issues/9)) ([c7e90d5](https://github.com/tmokmss/lockfile-subset/commit/c7e90d5850bdb8b07d023c3a57e97fa931998790))
+
 ## [1.2.1](https://github.com/tmokmss/lockfile-subset/compare/v1.2.0...v1.2.1) (2026-03-22)
 
 # [1.2.0](https://github.com/tmokmss/lockfile-subset/compare/v1.1.0...v1.2.0) (2026-03-22)
