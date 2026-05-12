@@ -15,7 +15,6 @@ type LockfileType = 'npm' | 'pnpm' | 'yarn'
 interface CliArgs {
   packages: string[]
   lockfile: string
-  cwd: string
   output: string
   includeOptional: boolean
   install: boolean
@@ -28,7 +27,6 @@ function parseArgs(argv: string[]): CliArgs {
   const args: CliArgs = {
     packages: [],
     lockfile: '',
-    cwd: '',
     output: './lockfile-subset-output',
     includeOptional: true,
     install: false,
@@ -44,10 +42,6 @@ function parseArgs(argv: string[]): CliArgs {
       case '--lockfile':
       case '-l':
         args.lockfile = argv[++i]
-        break
-      case '--cwd':
-      case '-C':
-        args.cwd = argv[++i]
         break
       case '--output':
       case '-o':
@@ -133,19 +127,10 @@ function resolveLockfile(lockfilePath: string): ResolvedLockfile {
 
 /**
  * Resolve the workspace path (relative to projectPath, forward slashes).
- * Explicit `--cwd` wins; otherwise infer from process.cwd() vs projectPath.
- * Returns "." when no sub-workspace is involved.
+ * Inferred from process.cwd() vs the lockfile's project directory: if cwd
+ * sits inside a sub-workspace, that path is used; otherwise "." (root).
  */
-function resolveWorkspacePath(projectPath: string, cwd: string): string {
-  if (cwd) {
-    const abs = resolve(cwd)
-    const rel = relative(projectPath, abs)
-    if (rel === '' || rel === '.') return '.'
-    if (rel.startsWith('..')) {
-      throw new Error(`--cwd "${cwd}" is outside the lockfile's project directory (${projectPath})`)
-    }
-    return rel.split(sep).join('/')
-  }
+function resolveWorkspacePath(projectPath: string): string {
   const rel = relative(projectPath, resolve('.'))
   if (rel === '' || rel === '.') return '.'
   if (rel.startsWith('..')) return '.'
@@ -163,8 +148,6 @@ Arguments:
 
 Options:
   --lockfile, -l <path>     Path to lockfile (auto-detected by walking up from cwd)
-  --cwd, -C <path>          Workspace/sub-package directory to extract from
-                            (defaults to process.cwd() relative to the lockfile)
   --output, -o <dir>        Output directory (default: ./lockfile-subset-output)
   --no-optional             Exclude optional dependencies
   --install                 Run npm ci / pnpm install / yarn install after generating
@@ -179,9 +162,10 @@ Examples:
   lockfile-subset @prisma/client sharp -l pnpm-lock.yaml --install
   lockfile-subset chalk --dry-run
 
-Monorepos:
-  cd apps/web && lockfile-subset next        # auto-detects workspace
-  lockfile-subset next -l ./pnpm-lock.yaml --cwd apps/web
+Monorepos: cd into the target workspace and run as usual.
+The lockfile is found by walking up from the current directory, and the
+sub-workspace is inferred from cwd relative to the lockfile.
+  cd apps/web && lockfile-subset next
 `.trim()
 
 async function main() {
@@ -204,7 +188,7 @@ async function main() {
   }
 
   const { projectPath, type } = resolveLockfile(args.lockfile)
-  const workspacePath = resolveWorkspacePath(projectPath, args.cwd)
+  const workspacePath = resolveWorkspacePath(projectPath)
   const outputDir = resolve(args.output)
 
   if (workspacePath !== '.') {
