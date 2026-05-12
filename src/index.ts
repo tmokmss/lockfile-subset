@@ -1,4 +1,4 @@
-import { resolve } from 'path'
+import { basename, dirname, relative, resolve, sep } from 'path'
 import { existsSync } from 'fs'
 import { execSync } from 'child_process'
 import { createRequire } from 'module'
@@ -82,39 +82,58 @@ interface ResolvedLockfile {
   type: LockfileType
 }
 
+const LOCKFILE_BASENAMES: Record<string, LockfileType> = {
+  'pnpm-lock.yaml': 'pnpm',
+  'yarn.lock': 'yarn',
+  'package-lock.json': 'npm',
+}
+
+/** Walk up from `start` looking for any known lockfile. Returns null if none found. */
+function findLockfileUpwards(start: string): { projectPath: string; type: LockfileType } | null {
+  let dir = start
+  while (true) {
+    for (const [name, type] of Object.entries(LOCKFILE_BASENAMES)) {
+      if (existsSync(resolve(dir, name))) {
+        return { projectPath: dir, type }
+      }
+    }
+    const parent = dirname(dir)
+    if (parent === dir) return null
+    dir = parent
+  }
+}
+
 function resolveLockfile(lockfilePath: string): ResolvedLockfile {
-  // Auto-detect from cwd
+  // Auto-detect: walk up from cwd
   if (!lockfilePath) {
-    if (existsSync(resolve('pnpm-lock.yaml'))) {
-      return { projectPath: resolve('.'), type: 'pnpm' }
-    }
-    if (existsSync(resolve('yarn.lock'))) {
-      return { projectPath: resolve('.'), type: 'yarn' }
-    }
-    if (existsSync(resolve('package-lock.json'))) {
-      return { projectPath: resolve('.'), type: 'npm' }
-    }
+    const found = findLockfileUpwards(resolve('.'))
+    if (found) return found
     throw new Error(
-      'No lockfile found in current directory. Expected package-lock.json, pnpm-lock.yaml, or yarn.lock.',
+      'No lockfile found in current directory or any parent. Expected package-lock.json, pnpm-lock.yaml, or yarn.lock.',
     )
   }
 
   // Explicit file path
   const resolved = resolve(lockfilePath)
-  const basename = resolved.split('/').pop()!
+  const type = LOCKFILE_BASENAMES[basename(resolved)]
+  if (!type) {
+    throw new Error(
+      `Invalid lockfile path: ${lockfilePath}. Expected a path to package-lock.json, pnpm-lock.yaml, or yarn.lock.`,
+    )
+  }
+  return { projectPath: dirname(resolved), type }
+}
 
-  if (basename === 'pnpm-lock.yaml') {
-    return { projectPath: resolve(resolved, '..'), type: 'pnpm' }
-  }
-  if (basename === 'yarn.lock') {
-    return { projectPath: resolve(resolved, '..'), type: 'yarn' }
-  }
-  if (basename === 'package-lock.json') {
-    return { projectPath: resolve(resolved, '..'), type: 'npm' }
-  }
-  throw new Error(
-    `Invalid lockfile path: ${lockfilePath}. Expected a path to package-lock.json, pnpm-lock.yaml, or yarn.lock.`,
-  )
+/**
+ * Resolve the workspace path (relative to projectPath, forward slashes).
+ * Inferred from process.cwd() vs the lockfile's project directory: if cwd
+ * sits inside a sub-workspace, that path is used; otherwise "." (root).
+ */
+function resolveWorkspacePath(projectPath: string): string {
+  const rel = relative(projectPath, resolve('.'))
+  if (rel === '' || rel === '.') return '.'
+  if (rel.startsWith('..')) return '.'
+  return rel.split(sep).join('/')
 }
 
 const HELP = `
@@ -127,7 +146,7 @@ Arguments:
   packages                  Package names to extract (one or more, space-separated)
 
 Options:
-  --lockfile, -l <path>     Path to lockfile (auto-detected from cwd by default)
+  --lockfile, -l <path>     Path to lockfile (auto-detected by walking up from cwd)
   --output, -o <dir>        Output directory (default: ./lockfile-subset-output)
   --no-optional             Exclude optional dependencies
   --install                 Run npm ci / pnpm install / yarn install after generating
@@ -141,6 +160,11 @@ Examples:
   lockfile-subset @prisma/client sharp -l /build/package-lock.json
   lockfile-subset @prisma/client sharp -l pnpm-lock.yaml --install
   lockfile-subset chalk --dry-run
+
+Monorepos: cd into the target workspace and run as usual.
+The lockfile is found by walking up from the current directory, and the
+sub-workspace is inferred from cwd relative to the lockfile.
+  cd apps/web && lockfile-subset next
 `.trim()
 
 async function main() {
@@ -163,7 +187,12 @@ async function main() {
   }
 
   const { projectPath, type } = resolveLockfile(args.lockfile)
+  const workspacePath = resolveWorkspacePath(projectPath)
   const outputDir = resolve(args.output)
+
+  if (workspacePath !== '.') {
+    console.log(`Using workspace: ${workspacePath} (lockfile root: ${projectPath})`)
+  }
 
   let result: AnyExtractResult
 
@@ -172,18 +201,21 @@ async function main() {
       projectPath,
       packageNames: args.packages,
       includeOptional: args.includeOptional,
+      workspacePath,
     })
   } else if (type === 'yarn') {
     result = await extractYarnSubset({
       projectPath,
       packageNames: args.packages,
       includeOptional: args.includeOptional,
+      workspacePath,
     })
   } else {
     result = await extractSubset({
       projectPath,
       packageNames: args.packages,
       includeOptional: args.includeOptional,
+      workspacePath,
     })
   }
 

@@ -1,0 +1,13 @@
+{
+  "name": "yarn-berry-mono-root",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "devDependencies": {
+    "semver": "^7.5.0"
+  },
+  "packageManager": "yarn@4.9.1"
+}
