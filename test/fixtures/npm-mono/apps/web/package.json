@@ -1,0 +1,11 @@
+{
+  "name": "@mono/web",
+  "version": "1.0.0",
+  "dependencies": {
+    "chalk": "^4.1.2",
+    "@mono/shared": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

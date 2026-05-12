@@ -1,0 +1,12 @@
+{
+  "name": "yarn-v1-mono-root",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "devDependencies": {
+    "semver": "^7.5.0"
+  }
+}

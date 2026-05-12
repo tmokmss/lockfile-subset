@@ -17,7 +17,7 @@ describe('extractPnpmSubset', () => {
 
     expect(result.type).toBe('pnpm')
     expect(result.packageJson.dependencies).toHaveProperty('chalk')
-    expect(result.packageJson.dependencies.chalk).toBe('4.1.2')
+    expect(result.packageJson.dependencies.chalk).toBe('^4.1.2')
 
     // chalk@4 has transitive deps
     const names = result.collected.map((c) => c.name)
@@ -85,12 +85,18 @@ describe('pnpm install integration', () => {
       // pnpm install --frozen-lockfile should succeed
       execSync('pnpm install --frozen-lockfile', { cwd: tmpDir, stdio: 'pipe' })
 
-      // Verify installed versions match
-      for (const [name, version] of Object.entries(result.packageJson.dependencies)) {
+      // Verify installed versions match what the importer resolved to in the lockfile
+      const resolved: Record<string, string> = {}
+      for (const [name, info] of Object.entries(
+        result.lockfileYaml.importers['.'].dependencies ?? {},
+      )) {
+        resolved[name] = info.version
+      }
+      for (const name of Object.keys(result.packageJson.dependencies)) {
         const pkgJson = JSON.parse(
           readFileSync(join(tmpDir, 'node_modules', name, 'package.json'), 'utf8'),
         )
-        expect(pkgJson.version).toBe(version)
+        expect(pkgJson.version).toBe(resolved[name])
       }
     } finally {
       rmSync(tmpDir, { recursive: true, force: true })

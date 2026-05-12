@@ -13,6 +13,13 @@ export interface YarnExtractOptions {
   projectPath: string
   packageNames: string[]
   includeOptional?: boolean
+  /** Workspace path relative to projectPath. Defaults to "." (root). */
+  workspacePath?: string
+}
+
+function normalizeWorkspacePath(p: string): string {
+  if (!p || p === '.' || p === './') return '.'
+  return p.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '')
 }
 
 export interface YarnExtractResult {
@@ -46,11 +53,13 @@ function extractV1({
   packageNames,
   includeOptional,
   lockfileContent,
+  workspacePath,
 }: {
   projectPath: string
   packageNames: string[]
   includeOptional: boolean
   lockfileContent: string
+  workspacePath: string
 }): YarnExtractResult {
   const parsed = parseYarnLockV1(lockfileContent)
   if (parsed.type !== 'success') {
@@ -58,7 +67,7 @@ function extractV1({
   }
   const lockfile = parsed.object as Record<string, YarnV1Entry>
 
-  const pkgJsonPath = join(projectPath, 'package.json')
+  const pkgJsonPath = workspacePath === '.' ? join(projectPath, 'package.json') : join(projectPath, workspacePath, 'package.json')
   const pkgJson = JSON.parse(readFileSync(pkgJsonPath, 'utf8'))
   const allDeps: Record<string, string> = {
     ...pkgJson.dependencies,
@@ -73,6 +82,11 @@ function extractV1({
     const range = allDeps[name]
     if (!range) {
       throw new Error(`Package "${name}" not found in yarn.lock`)
+    }
+    if (!lockfile[`${name}@${range}`]) {
+      throw new Error(
+        `Package "${name}@${range}" has no lockfile entry. It is likely a workspace dependency, not a published package.`,
+      )
     }
 
     const rootKey = `${name}@${range}`
@@ -110,12 +124,12 @@ function extractV1({
     subset[key] = lockfile[key]
   }
 
-  // Build dependencies for package.json
+  // Build dependencies for package.json — keep the original range so the
+  // resulting `name@range` matches the lockfile key (yarn v1 --frozen-lockfile
+  // requires an exact match).
   const dependencies: Record<string, string> = {}
   for (const name of packageNames) {
-    const range = allDeps[name]
-    const entry = lockfile[`${name}@${range}`]
-    dependencies[name] = entry.version
+    dependencies[name] = allDeps[name]
   }
 
   // Deduplicate collected by name@version
@@ -160,11 +174,13 @@ function extractBerry({
   packageNames,
   includeOptional,
   lockfileContent,
+  workspacePath,
 }: {
   projectPath: string
   packageNames: string[]
   includeOptional: boolean
   lockfileContent: string
+  workspacePath: string
 }): YarnExtractResult {
   const lockfile = yaml.load(lockfileContent) as Record<string, YarnBerryEntry>
 
@@ -179,7 +195,7 @@ function extractBerry({
     }
   }
 
-  const pkgJsonPath = join(projectPath, 'package.json')
+  const pkgJsonPath = workspacePath === '.' ? join(projectPath, 'package.json') : join(projectPath, workspacePath, 'package.json')
   const pkgJson = JSON.parse(readFileSync(pkgJsonPath, 'utf8'))
   const allDeps: Record<string, string> = {
     ...pkgJson.dependencies,
@@ -195,6 +211,9 @@ function extractBerry({
     const range = allDeps[name]
     if (!range) {
       throw new Error(`Package "${name}" not found in yarn.lock`)
+    }
+    if (range.startsWith('workspace:')) {
+      throw new Error(`Package "${name}" resolves to a workspace, not a published package`)
     }
 
     // Berry descriptors use "npm:" prefix
@@ -214,6 +233,7 @@ function extractBerry({
 
       if (match.entry.dependencies) {
         for (const [depName, depRange] of Object.entries(match.entry.dependencies)) {
+          if (depRange.startsWith('workspace:')) continue
           const depDesc = `${depName}@${depRange}`
           if (!visited.has(depDesc)) queue.push(depDesc)
         }
@@ -221,6 +241,7 @@ function extractBerry({
 
       if (includeOptional && match.entry.optionalDependencies) {
         for (const [depName, depRange] of Object.entries(match.entry.optionalDependencies)) {
+          if (depRange.startsWith('workspace:')) continue
           const depDesc = `${depName}@${depRange}`
           if (!visited.has(depDesc)) queue.push(depDesc)
         }
@@ -228,12 +249,11 @@ function extractBerry({
     }
   }
 
-  // Build dependencies for package.json
+  // Build dependencies for package.json — keep the original range to match
+  // the lockfile descriptor.
   const dependencies: Record<string, string> = {}
   for (const name of packageNames) {
-    const descriptor = `${name}@npm:${allDeps[name]}`
-    const match = descriptorMap.get(descriptor)
-    dependencies[name] = match!.entry.version
+    dependencies[name] = allDeps[name]
   }
 
   // Build subset lockfile content
@@ -338,14 +358,16 @@ export async function extractYarnSubset({
   projectPath,
   packageNames,
   includeOptional = true,
+  workspacePath = '.',
 }: YarnExtractOptions): Promise<YarnExtractResult> {
   const lockfilePath = join(projectPath, 'yarn.lock')
   const lockfileContent = readFileSync(lockfilePath, 'utf8')
   const version = detectYarnVersion(lockfileContent)
+  const normalizedWorkspace = normalizeWorkspacePath(workspacePath)
 
   if (version === 1) {
-    return extractV1({ projectPath, packageNames, includeOptional, lockfileContent })
+    return extractV1({ projectPath, packageNames, includeOptional, lockfileContent, workspacePath: normalizedWorkspace })
   } else {
-    return extractBerry({ projectPath, packageNames, includeOptional, lockfileContent })
+    return extractBerry({ projectPath, packageNames, includeOptional, lockfileContent, workspacePath: normalizedWorkspace })
   }
 }

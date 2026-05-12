@@ -1,4 +1,4 @@
-import { resolve } from 'path'
+import { dirname, relative, resolve, sep } from 'path'
 import { existsSync } from 'fs'
 import { execSync } from 'child_process'
 import { createRequire } from 'module'
@@ -15,6 +15,7 @@ type LockfileType = 'npm' | 'pnpm' | 'yarn'
 interface CliArgs {
   packages: string[]
   lockfile: string
+  cwd: string
   output: string
   includeOptional: boolean
   install: boolean
@@ -27,6 +28,7 @@ function parseArgs(argv: string[]): CliArgs {
   const args: CliArgs = {
     packages: [],
     lockfile: '',
+    cwd: '',
     output: './lockfile-subset-output',
     includeOptional: true,
     install: false,
@@ -42,6 +44,10 @@ function parseArgs(argv: string[]): CliArgs {
       case '--lockfile':
       case '-l':
         args.lockfile = argv[++i]
+        break
+      case '--cwd':
+      case '-C':
+        args.cwd = argv[++i]
         break
       case '--output':
       case '-o':
@@ -82,39 +88,68 @@ interface ResolvedLockfile {
   type: LockfileType
 }
 
+const LOCKFILE_BASENAMES: Record<string, LockfileType> = {
+  'pnpm-lock.yaml': 'pnpm',
+  'yarn.lock': 'yarn',
+  'package-lock.json': 'npm',
+}
+
+/** Walk up from `start` looking for any known lockfile. Returns null if none found. */
+function findLockfileUpwards(start: string): { projectPath: string; type: LockfileType } | null {
+  let dir = start
+  while (true) {
+    for (const [basename, type] of Object.entries(LOCKFILE_BASENAMES)) {
+      if (existsSync(resolve(dir, basename))) {
+        return { projectPath: dir, type }
+      }
+    }
+    const parent = dirname(dir)
+    if (parent === dir) return null
+    dir = parent
+  }
+}
+
 function resolveLockfile(lockfilePath: string): ResolvedLockfile {
-  // Auto-detect from cwd
+  // Auto-detect: walk up from cwd
   if (!lockfilePath) {
-    if (existsSync(resolve('pnpm-lock.yaml'))) {
-      return { projectPath: resolve('.'), type: 'pnpm' }
-    }
-    if (existsSync(resolve('yarn.lock'))) {
-      return { projectPath: resolve('.'), type: 'yarn' }
-    }
-    if (existsSync(resolve('package-lock.json'))) {
-      return { projectPath: resolve('.'), type: 'npm' }
-    }
+    const found = findLockfileUpwards(resolve('.'))
+    if (found) return found
     throw new Error(
-      'No lockfile found in current directory. Expected package-lock.json, pnpm-lock.yaml, or yarn.lock.',
+      'No lockfile found in current directory or any parent. Expected package-lock.json, pnpm-lock.yaml, or yarn.lock.',
     )
   }
 
   // Explicit file path
   const resolved = resolve(lockfilePath)
   const basename = resolved.split('/').pop()!
+  const type = LOCKFILE_BASENAMES[basename]
+  if (!type) {
+    throw new Error(
+      `Invalid lockfile path: ${lockfilePath}. Expected a path to package-lock.json, pnpm-lock.yaml, or yarn.lock.`,
+    )
+  }
+  return { projectPath: resolve(resolved, '..'), type }
+}
 
-  if (basename === 'pnpm-lock.yaml') {
-    return { projectPath: resolve(resolved, '..'), type: 'pnpm' }
+/**
+ * Resolve the workspace path (relative to projectPath, forward slashes).
+ * Explicit `--cwd` wins; otherwise infer from process.cwd() vs projectPath.
+ * Returns "." when no sub-workspace is involved.
+ */
+function resolveWorkspacePath(projectPath: string, cwd: string): string {
+  if (cwd) {
+    const abs = resolve(cwd)
+    const rel = relative(projectPath, abs)
+    if (rel === '' || rel === '.') return '.'
+    if (rel.startsWith('..')) {
+      throw new Error(`--cwd "${cwd}" is outside the lockfile's project directory (${projectPath})`)
+    }
+    return rel.split(sep).join('/')
   }
-  if (basename === 'yarn.lock') {
-    return { projectPath: resolve(resolved, '..'), type: 'yarn' }
-  }
-  if (basename === 'package-lock.json') {
-    return { projectPath: resolve(resolved, '..'), type: 'npm' }
-  }
-  throw new Error(
-    `Invalid lockfile path: ${lockfilePath}. Expected a path to package-lock.json, pnpm-lock.yaml, or yarn.lock.`,
-  )
+  const rel = relative(projectPath, resolve('.'))
+  if (rel === '' || rel === '.') return '.'
+  if (rel.startsWith('..')) return '.'
+  return rel.split(sep).join('/')
 }
 
 const HELP = `
@@ -127,7 +162,9 @@ Arguments:
   packages                  Package names to extract (one or more, space-separated)
 
 Options:
-  --lockfile, -l <path>     Path to lockfile (auto-detected from cwd by default)
+  --lockfile, -l <path>     Path to lockfile (auto-detected by walking up from cwd)
+  --cwd, -C <path>          Workspace/sub-package directory to extract from
+                            (defaults to process.cwd() relative to the lockfile)
   --output, -o <dir>        Output directory (default: ./lockfile-subset-output)
   --no-optional             Exclude optional dependencies
   --install                 Run npm ci / pnpm install / yarn install after generating
@@ -141,6 +178,10 @@ Examples:
   lockfile-subset @prisma/client sharp -l /build/package-lock.json
   lockfile-subset @prisma/client sharp -l pnpm-lock.yaml --install
   lockfile-subset chalk --dry-run
+
+Monorepos:
+  cd apps/web && lockfile-subset next        # auto-detects workspace
+  lockfile-subset next -l ./pnpm-lock.yaml --cwd apps/web
 `.trim()
 
 async function main() {
@@ -163,7 +204,12 @@ async function main() {
   }
 
   const { projectPath, type } = resolveLockfile(args.lockfile)
+  const workspacePath = resolveWorkspacePath(projectPath, args.cwd)
   const outputDir = resolve(args.output)
+
+  if (workspacePath !== '.') {
+    console.log(`Using workspace: ${workspacePath} (lockfile root: ${projectPath})`)
+  }
 
   let result: AnyExtractResult
 
@@ -172,18 +218,21 @@ async function main() {
       projectPath,
       packageNames: args.packages,
       includeOptional: args.includeOptional,
+      workspacePath,
     })
   } else if (type === 'yarn') {
     result = await extractYarnSubset({
       projectPath,
       packageNames: args.packages,
       includeOptional: args.includeOptional,
+      workspacePath,
     })
   } else {
     result = await extractSubset({
       projectPath,
       packageNames: args.packages,
       includeOptional: args.includeOptional,
+      workspacePath,
     })
   }
 
