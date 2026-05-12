@@ -2,6 +2,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { createRequire } from 'module'
 import yaml from 'js-yaml'
+import { normalizeWorkspacePath } from './workspace-path.js'
 
 // @yarnpkg/lockfile is CJS-only. A normal default import works after bundling (tsdown handles
 // CJS interop), but breaks under vitest's native ESM loader where the named exports land on
@@ -17,9 +18,12 @@ export interface YarnExtractOptions {
   workspacePath?: string
 }
 
-function normalizeWorkspacePath(p: string): string {
-  if (!p || p === '.' || p === './') return '.'
-  return p.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '')
+interface YarnExtractInternal {
+  projectPath: string
+  packageNames: string[]
+  includeOptional: boolean
+  lockfileContent: string
+  workspacePath: string
 }
 
 export interface YarnExtractResult {
@@ -54,20 +58,14 @@ function extractV1({
   includeOptional,
   lockfileContent,
   workspacePath,
-}: {
-  projectPath: string
-  packageNames: string[]
-  includeOptional: boolean
-  lockfileContent: string
-  workspacePath: string
-}): YarnExtractResult {
+}: YarnExtractInternal): YarnExtractResult {
   const parsed = parseYarnLockV1(lockfileContent)
   if (parsed.type !== 'success') {
     throw new Error(`Failed to parse yarn.lock: ${parsed.type}`)
   }
   const lockfile = parsed.object as Record<string, YarnV1Entry>
 
-  const pkgJsonPath = workspacePath === '.' ? join(projectPath, 'package.json') : join(projectPath, workspacePath, 'package.json')
+  const pkgJsonPath = join(projectPath, workspacePath, 'package.json')
   const pkgJson = JSON.parse(readFileSync(pkgJsonPath, 'utf8'))
   const allDeps: Record<string, string> = {
     ...pkgJson.dependencies,
@@ -175,13 +173,7 @@ function extractBerry({
   includeOptional,
   lockfileContent,
   workspacePath,
-}: {
-  projectPath: string
-  packageNames: string[]
-  includeOptional: boolean
-  lockfileContent: string
-  workspacePath: string
-}): YarnExtractResult {
+}: YarnExtractInternal): YarnExtractResult {
   const lockfile = yaml.load(lockfileContent) as Record<string, YarnBerryEntry>
 
   // Build descriptor → entry map (handle comma-separated keys)
@@ -195,7 +187,7 @@ function extractBerry({
     }
   }
 
-  const pkgJsonPath = workspacePath === '.' ? join(projectPath, 'package.json') : join(projectPath, workspacePath, 'package.json')
+  const pkgJsonPath = join(projectPath, workspacePath, 'package.json')
   const pkgJson = JSON.parse(readFileSync(pkgJsonPath, 'utf8'))
   const allDeps: Record<string, string> = {
     ...pkgJson.dependencies,

@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import yaml from 'js-yaml'
+import { normalizeWorkspacePath } from './workspace-path.js'
 
 export interface PnpmExtractOptions {
   projectPath: string
@@ -56,12 +57,6 @@ function snapshotKey(name: string, version: string): string {
   return `${name}@${version}`
 }
 
-/** Normalize a workspace path to a pnpm importer key (forward slashes, no leading "./"). */
-function normalizeImporterKey(path: string): string {
-  if (!path || path === '.' || path === './') return '.'
-  return path.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '')
-}
-
 export async function extractPnpmSubset({
   projectPath,
   packageNames,
@@ -78,7 +73,7 @@ export async function extractPnpmSubset({
     )
   }
 
-  const importerKey = normalizeImporterKey(workspacePath)
+  const importerKey = normalizeWorkspacePath(workspacePath)
   const importer = lockfile.importers[importerKey]
   if (!importer) {
     const available = Object.keys(lockfile.importers).join(', ')
@@ -88,18 +83,12 @@ export async function extractPnpmSubset({
   }
 
   // Merge prod + optional deps from selected importer (exclude dev)
-  const rootDeps: Record<string, string> = {}
-  const rootSpecifiers: Record<string, string> = {}
-  if (importer.dependencies) {
-    for (const [name, info] of Object.entries(importer.dependencies)) {
-      rootDeps[name] = info.version
-      rootSpecifiers[name] = info.specifier
-    }
-  }
-  if (importer.optionalDependencies) {
-    for (const [name, info] of Object.entries(importer.optionalDependencies)) {
-      rootDeps[name] = info.version
-      rootSpecifiers[name] = info.specifier
+  interface RootDep { specifier: string; version: string }
+  const rootDeps: Record<string, RootDep> = {}
+  for (const info of [importer.dependencies, importer.optionalDependencies]) {
+    if (!info) continue
+    for (const [name, dep] of Object.entries(info)) {
+      rootDeps[name] = { specifier: dep.specifier, version: dep.version }
     }
   }
 
@@ -108,15 +97,15 @@ export async function extractPnpmSubset({
   const keepPackages = new Set<string>()
 
   for (const name of packageNames) {
-    const version = rootDeps[name]
-    if (!version) {
+    const dep = rootDeps[name]
+    if (!dep) {
       throw new Error(`Package "${name}" not found in pnpm-lock.yaml`)
     }
-    if (version.startsWith('link:')) {
-      throw new Error(`Package "${name}" resolves to a workspace (${version}), not a published package`)
+    if (dep.version.startsWith('link:')) {
+      throw new Error(`Package "${name}" resolves to a workspace (${dep.version}), not a published package`)
     }
 
-    const key = snapshotKey(name, version)
+    const key = snapshotKey(name, dep.version)
     const queue: string[] = [key]
 
     while (queue.length > 0) {
@@ -149,12 +138,11 @@ export async function extractPnpmSubset({
     }
   }
 
-  // Build subset dependencies for package.json. Use the original specifier
-  // when available so pnpm's lockfile↔manifest cross-check succeeds.
+  // Use the original specifier in both manifest and lockfile so pnpm's
+  // manifest↔lockfile cross-check succeeds.
   const dependencies: Record<string, string> = {}
   for (const name of packageNames) {
-    const parsed = parseSnapshotKey(snapshotKey(name, rootDeps[name]))
-    dependencies[name] = rootSpecifiers[name] ?? parsed.version
+    dependencies[name] = rootDeps[name].specifier
   }
 
   // Build subset lockfile
@@ -177,8 +165,8 @@ export async function extractPnpmSubset({
   }
   for (const name of packageNames) {
     subsetImporter.dependencies![name] = {
-      specifier: rootSpecifiers[name] ?? dependencies[name],
-      version: rootDeps[name],
+      specifier: rootDeps[name].specifier,
+      version: rootDeps[name].version,
     }
   }
 

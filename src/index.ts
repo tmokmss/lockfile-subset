@@ -1,4 +1,4 @@
-import { dirname, relative, resolve, sep } from 'path'
+import { basename, dirname, relative, resolve, sep } from 'path'
 import { existsSync } from 'fs'
 import { execSync } from 'child_process'
 import { createRequire } from 'module'
@@ -92,8 +92,8 @@ const LOCKFILE_BASENAMES: Record<string, LockfileType> = {
 function findLockfileUpwards(start: string): { projectPath: string; type: LockfileType } | null {
   let dir = start
   while (true) {
-    for (const [basename, type] of Object.entries(LOCKFILE_BASENAMES)) {
-      if (existsSync(resolve(dir, basename))) {
+    for (const [name, type] of Object.entries(LOCKFILE_BASENAMES)) {
+      if (existsSync(resolve(dir, name))) {
         return { projectPath: dir, type }
       }
     }
@@ -115,14 +115,13 @@ function resolveLockfile(lockfilePath: string): ResolvedLockfile {
 
   // Explicit file path
   const resolved = resolve(lockfilePath)
-  const basename = resolved.split('/').pop()!
-  const type = LOCKFILE_BASENAMES[basename]
+  const type = LOCKFILE_BASENAMES[basename(resolved)]
   if (!type) {
     throw new Error(
       `Invalid lockfile path: ${lockfilePath}. Expected a path to package-lock.json, pnpm-lock.yaml, or yarn.lock.`,
     )
   }
-  return { projectPath: resolve(resolved, '..'), type }
+  return { projectPath: dirname(resolved), type }
 }
 
 /**

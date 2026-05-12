@@ -68,18 +68,6 @@ describe('pnpm monorepo', () => {
     ).rejects.toThrow(/Importer/)
   })
 
-  it('still works for the root importer', async () => {
-    // Root has no real deps in this fixture, but we can pass workspacePath '.'
-    // and request something. We use semver which IS a devDep, so it would fail.
-    // Instead use apps/web again with default omitted.
-    const result = await extractPnpmSubset({
-      projectPath: fixture,
-      packageNames: ['chalk'],
-      workspacePath: 'apps/web',
-    })
-    expect(result.type).toBe('pnpm')
-  })
-
   it('produces a lockfile that pnpm install --frozen-lockfile accepts', async () => {
     const result = await extractPnpmSubset({
       projectPath: fixture,

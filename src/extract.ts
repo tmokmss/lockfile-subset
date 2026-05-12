@@ -1,10 +1,6 @@
 import Arborist from '@npmcli/arborist'
 import type { Node, Edge } from '@npmcli/arborist'
-
-function normalizeWorkspacePath(p: string): string {
-  if (!p || p === '.' || p === './') return ''
-  return p.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '')
-}
+import { normalizeWorkspacePath } from './workspace-path.js'
 
 /**
  * Rewrite a package-lock.json location key so the output is a standalone project.
@@ -12,7 +8,7 @@ function normalizeWorkspacePath(p: string): string {
  * hoisted entries at the root stay where they are.
  */
 function rewritePackageLocation(location: string, workspacePath: string): string {
-  if (!workspacePath) return location
+  if (workspacePath === '.') return location
   if (location === workspacePath) return ''
   const prefix = workspacePath + '/'
   if (location.startsWith(prefix)) return location.slice(prefix.length)
@@ -63,16 +59,16 @@ export async function extractSubset({
 
   const normalizedWorkspace = normalizeWorkspacePath(workspacePath)
   let startNode: Node = tree
-  if (normalizedWorkspace !== '') {
+  if (normalizedWorkspace !== '.') {
     let found: Node | undefined
-    for (const child of tree.fsChildren as Set<Node>) {
+    for (const child of tree.fsChildren) {
       if (child.location === normalizedWorkspace) {
         found = child
         break
       }
     }
     if (!found) {
-      const available = [...(tree.fsChildren as Set<Node>)].map((c) => c.location).join(', ')
+      const available = [...tree.fsChildren].map((c) => c.location).join(', ')
       throw new Error(
         `Workspace "${normalizedWorkspace}" not found in package-lock.json. Available workspaces: ${available || '(none)'}`,
       )
