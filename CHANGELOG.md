@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/tmokmss/lockfile-subset/compare/v1.3.1...v1.4.0) (2026-05-13)
+
+
+### Features
+
+* support esbuild-style wildcards in package names ([#12](https://github.com/tmokmss/lockfile-subset/issues/12)) ([288f4ab](https://github.com/tmokmss/lockfile-subset/commit/288f4ab3084ed1ae0ebc9f12e2109111502fdf66))
+
 ## [1.3.1](https://github.com/tmokmss/lockfile-subset/compare/v1.3.0...v1.3.1) (2026-05-13)
 
 
