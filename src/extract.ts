@@ -1,6 +1,7 @@
 import Arborist from '@npmcli/arborist'
 import type { Node, Edge } from '@npmcli/arborist'
 import { normalizeWorkspacePath } from './workspace-path.js'
+import { expandWildcards } from './wildcard.js'
 
 /**
  * Rewrite a package-lock.json location key so the output is a standalone project.
@@ -76,10 +77,12 @@ export async function extractSubset({
     startNode = found
   }
 
+  const resolvedNames = expandWildcards(packageNames, startNode.edgesOut.keys())
+
   // BFS to collect transitive deps
   const keep = new Set<Node>()
 
-  for (const name of packageNames) {
+  for (const name of resolvedNames) {
     const edge: Edge | undefined = startNode.edgesOut.get(name)
     if (!edge?.to) {
       throw new Error(`Package "${name}" not found in lockfile`)
@@ -106,7 +109,7 @@ export async function extractSubset({
 
   // Build subset lockfile
   const dependencies: Record<string, string> = {}
-  for (const name of packageNames) {
+  for (const name of resolvedNames) {
     const edge = startNode.edgesOut.get(name)!
     dependencies[name] = edge.to!.version
   }
