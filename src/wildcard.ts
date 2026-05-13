@@ -4,13 +4,9 @@
  * without `*` are treated as exact names.
  */
 
-export function isWildcard(pattern: string): boolean {
-  return pattern.includes('*')
-}
-
-export function matchesPattern(pattern: string, name: string): boolean {
-  if (!pattern.includes('*')) return pattern === name
+function matchesPattern(pattern: string, name: string): boolean {
   const star = pattern.indexOf('*')
+  if (star === -1) return pattern === name
   if (pattern.indexOf('*', star + 1) !== -1) {
     throw new Error(`Pattern "${pattern}" has more than one "*"; only one wildcard is supported.`)
   }
@@ -34,7 +30,7 @@ export function expandWildcards(patterns: string[], available: Iterable<string>)
   const seen = new Set<string>()
 
   for (const pattern of patterns) {
-    if (!isWildcard(pattern)) {
+    if (!pattern.includes('*')) {
       if (!seen.has(pattern)) {
         seen.add(pattern)
         result.push(pattern)
