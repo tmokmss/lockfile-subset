@@ -266,8 +266,31 @@ function extractBerry({
     lines.push('')
   }
 
-  // Add kept entries in order
-  for (const originalKey of keepOriginalKeys) {
+  // Berry expects a self-entry for the root workspace; without it,
+  // `yarn install --immutable` fails with YN0028. The output project
+  // is always a single-package "lockfile-subset-output" rooted at ".".
+  const rootWorkspaceKey = 'lockfile-subset-output@workspace:.'
+
+  // Berry writes entries sorted alphabetically by descriptor key.
+  // Sort the kept keys plus the synthetic root workspace key together.
+  const sortedKeys = [...keepOriginalKeys, rootWorkspaceKey].sort()
+
+  for (const originalKey of sortedKeys) {
+    if (originalKey === rootWorkspaceKey) {
+      lines.push(`"${originalKey}":`)
+      lines.push(`  version: 0.0.0-use.local`)
+      lines.push(`  resolution: "${originalKey}"`)
+      if (Object.keys(dependencies).length > 0) {
+        lines.push('  dependencies:')
+        for (const [k, v] of Object.entries(dependencies)) {
+          lines.push(`    ${k}: "npm:${v}"`)
+        }
+      }
+      lines.push('  languageName: unknown')
+      lines.push('  linkType: soft')
+      lines.push('')
+      continue
+    }
     const entry = lockfile[originalKey] as YarnBerryEntry
     lines.push(`"${originalKey}":`)
     lines.push(`  version: ${entry.version}`)
