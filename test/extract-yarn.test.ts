@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { extractYarnSubset } from '../src/extract-yarn.js'
 import { writeOutput } from '../src/write.js'
 import { execSync } from 'child_process'
-import { mkdtempSync, readFileSync, rmSync } from 'fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 
@@ -153,4 +153,41 @@ describe('yarn v1 install integration', () => {
       rmSync(tmpDir, { recursive: true, force: true })
     }
   }, 30000)
+})
+
+describe('yarn berry install integration', () => {
+  it('should produce a lockfile that yarn install --immutable accepts', async () => {
+    const result = await extractYarnSubset({
+      projectPath: FIXTURE_YARN_BERRY,
+      packageNames: ['chalk', 'ms'],
+    })
+
+    const tmpDir = mkdtempSync(join(tmpdir(), 'lockfile-subset-yarn-berry-test-'))
+
+    try {
+      writeOutput(tmpDir, result)
+
+      const sourcePkgJson = JSON.parse(readFileSync(join(FIXTURE_YARN_BERRY, 'package.json'), 'utf8'))
+      const outPkgJsonPath = join(tmpDir, 'package.json')
+      const outPkgJson = JSON.parse(readFileSync(outPkgJsonPath, 'utf8'))
+      outPkgJson.packageManager = sourcePkgJson.packageManager
+      writeFileSync(outPkgJsonPath, JSON.stringify(outPkgJson, null, 2) + '\n')
+      writeFileSync(join(tmpDir, '.yarnrc.yml'), 'nodeLinker: node-modules\nenableTelemetry: false\n')
+
+      execSync('corepack yarn install --immutable', {
+        cwd: tmpDir,
+        stdio: 'pipe',
+        env: { ...process.env, COREPACK_ENABLE_DOWNLOAD_PROMPT: '0' },
+      })
+
+      for (const [name, version] of Object.entries(result.packageJson.dependencies)) {
+        const pkgJson = JSON.parse(
+          readFileSync(join(tmpDir, 'node_modules', name, 'package.json'), 'utf8'),
+        )
+        expect(pkgJson.version).toBe(version)
+      }
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true })
+    }
+  }, 120000)
 })
