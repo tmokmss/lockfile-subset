@@ -10,6 +10,8 @@ import { normalizeWorkspacePath } from './workspace-path.js'
 const require = createRequire(import.meta.url)
 const { parse: parseYarnLockV1, stringify: stringifyYarnLockV1 } = require('@yarnpkg/lockfile')
 
+const OUTPUT_PACKAGE_NAME = 'lockfile-subset-output'
+
 export interface YarnExtractOptions {
   projectPath: string
   packageNames: string[]
@@ -143,7 +145,7 @@ function extractV1({
     type: 'yarn',
     yarnVersion: 1,
     packageJson: {
-      name: 'lockfile-subset-output',
+      name: OUTPUT_PACKAGE_NAME,
       version: '1.0.0',
       dependencies,
     },
@@ -267,18 +269,16 @@ function extractBerry({
   }
 
   // Berry expects a self-entry for the root workspace; without it,
-  // `yarn install --immutable` fails with YN0028. The output project
-  // is always a single-package "lockfile-subset-output" rooted at ".".
-  const rootWorkspaceKey = 'lockfile-subset-output@workspace:.'
+  // `yarn install --immutable` fails with YN0028.
+  const rootWorkspaceKey = `${OUTPUT_PACKAGE_NAME}@workspace:.`
 
-  // Berry writes entries sorted alphabetically by descriptor key.
-  // Sort the kept keys plus the synthetic root workspace key together.
+  // Berry expects entries sorted alphabetically by descriptor key.
   const sortedKeys = [...keepOriginalKeys, rootWorkspaceKey].sort()
 
   for (const originalKey of sortedKeys) {
     if (originalKey === rootWorkspaceKey) {
       lines.push(`"${originalKey}":`)
-      lines.push(`  version: 0.0.0-use.local`)
+      lines.push('  version: 0.0.0-use.local')
       lines.push(`  resolution: "${originalKey}"`)
       if (Object.keys(dependencies).length > 0) {
         lines.push('  dependencies:')
@@ -346,7 +346,7 @@ function extractBerry({
     type: 'yarn',
     yarnVersion: 2,
     packageJson: {
-      name: 'lockfile-subset-output',
+      name: OUTPUT_PACKAGE_NAME,
       version: '1.0.0',
       dependencies,
     },
