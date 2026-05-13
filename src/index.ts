@@ -143,7 +143,11 @@ Extract a subset of package-lock.json, pnpm-lock.yaml, or yarn.lock for specifie
 packages and their transitive dependencies.
 
 Arguments:
-  packages                  Package names to extract (one or more, space-separated)
+  packages                  Package names to extract (one or more, space-separated).
+                            esbuild-style wildcards (single "*") are expanded
+                            against the workspace's direct dependencies, e.g.
+                            "@aws-sdk/*" or "*-loader". Quote patterns to keep
+                            the shell from globbing them.
 
 Options:
   --lockfile, -l <path>     Path to lockfile (auto-detected by walking up from cwd)
@@ -160,6 +164,7 @@ Examples:
   lockfile-subset @prisma/client sharp -l /build/package-lock.json
   lockfile-subset @prisma/client sharp -l pnpm-lock.yaml --install
   lockfile-subset chalk --dry-run
+  lockfile-subset '@aws-sdk/*' sharp
 
 Monorepos: cd into the target workspace and run as usual.
 The lockfile is found by walking up from the current directory, and the
@@ -219,8 +224,9 @@ async function main() {
     })
   }
 
+  const directCount = Object.keys(result.packageJson.dependencies).length
   console.log(
-    `Collected ${result.collected.length} packages (${args.packages.length} direct, ${result.collected.length - args.packages.length} transitive)`,
+    `Collected ${result.collected.length} packages (${directCount} direct, ${result.collected.length - directCount} transitive)`,
   )
 
   if (args.dryRun) {

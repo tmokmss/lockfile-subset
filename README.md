@@ -46,6 +46,10 @@ lockfile-subset @prisma/client sharp -o /standalone --install
 
 # Preview without writing files
 lockfile-subset chalk --dry-run
+
+# esbuild-style wildcards (single "*") match against direct dependencies.
+# Quote them so the shell doesn't expand them.
+lockfile-subset '@aws-sdk/*' sharp
 ```
 
 The lockfile type (npm, pnpm, or yarn) is auto-detected from the project directory. This generates a minimal `package.json` and lockfile in the output directory. Then run `npm ci`, `pnpm install --frozen-lockfile`, or `yarn install --frozen-lockfile` to install exactly those packages.

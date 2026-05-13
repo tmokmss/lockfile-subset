@@ -46,6 +46,34 @@ describe('extractPnpmSubset', () => {
     ).rejects.toThrow('not found in pnpm-lock.yaml')
   })
 
+  it('should expand wildcards against direct dependencies', async () => {
+    const result = await extractPnpmSubset({
+      projectPath: FIXTURE_PNPM_V9,
+      packageNames: ['c*'],
+    })
+
+    expect(result.packageJson.dependencies).toHaveProperty('chalk')
+    expect(result.packageJson.dependencies).not.toHaveProperty('ms')
+  })
+
+  it('should expand a wildcard matching multiple direct dependencies', async () => {
+    const result = await extractPnpmSubset({
+      projectPath: FIXTURE_PNPM_V9,
+      packageNames: ['*'],
+    })
+
+    expect(Object.keys(result.packageJson.dependencies).sort()).toEqual(['chalk', 'ms'])
+  })
+
+  it('should throw when wildcard matches nothing', async () => {
+    await expect(
+      extractPnpmSubset({
+        projectPath: FIXTURE_PNPM_V9,
+        packageNames: ['@aws-sdk/*'],
+      }),
+    ).rejects.toThrow(/did not match/)
+  })
+
   it('should not include devDependencies in transitive deps', async () => {
     const result = await extractPnpmSubset({
       projectPath: FIXTURE_PNPM_V9,

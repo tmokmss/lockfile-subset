@@ -3,6 +3,7 @@ import { join } from 'path'
 import { createRequire } from 'module'
 import yaml from 'js-yaml'
 import { normalizeWorkspacePath } from './workspace-path.js'
+import { expandWildcards } from './wildcard.js'
 
 // @yarnpkg/lockfile is CJS-only. A normal default import works after bundling (tsdown handles
 // CJS interop), but breaks under vitest's native ESM loader where the named exports land on
@@ -74,11 +75,13 @@ function extractV1({
     ...pkgJson.optionalDependencies,
   }
 
+  const resolvedNames = expandWildcards(packageNames, Object.keys(allDeps))
+
   // BFS
   const keepKeys = new Set<string>()
   const collected: Array<{ name: string; version: string }> = []
 
-  for (const name of packageNames) {
+  for (const name of resolvedNames) {
     const range = allDeps[name]
     if (!range) {
       throw new Error(`Package "${name}" not found in yarn.lock`)
@@ -128,7 +131,7 @@ function extractV1({
   // resulting `name@range` matches the lockfile key (yarn v1 --frozen-lockfile
   // requires an exact match).
   const dependencies: Record<string, string> = {}
-  for (const name of packageNames) {
+  for (const name of resolvedNames) {
     dependencies[name] = allDeps[name]
   }
 
@@ -196,12 +199,14 @@ function extractBerry({
     ...pkgJson.optionalDependencies,
   }
 
+  const resolvedNames = expandWildcards(packageNames, Object.keys(allDeps))
+
   // BFS
   const keepOriginalKeys = new Set<string>()
   const visited = new Set<string>()
   const collected: Array<{ name: string; version: string }> = []
 
-  for (const name of packageNames) {
+  for (const name of resolvedNames) {
     const range = allDeps[name]
     if (!range) {
       throw new Error(`Package "${name}" not found in yarn.lock`)
@@ -246,7 +251,7 @@ function extractBerry({
   // Build dependencies for package.json — keep the original range to match
   // the lockfile descriptor.
   const dependencies: Record<string, string> = {}
-  for (const name of packageNames) {
+  for (const name of resolvedNames) {
     dependencies[name] = allDeps[name]
   }
 

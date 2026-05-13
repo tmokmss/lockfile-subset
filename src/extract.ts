@@ -1,6 +1,7 @@
 import Arborist from '@npmcli/arborist'
 import type { Node, Edge } from '@npmcli/arborist'
 import { normalizeWorkspacePath } from './workspace-path.js'
+import { expandWildcards } from './wildcard.js'
 
 /**
  * Rewrite a package-lock.json location key so the output is a standalone project.
@@ -76,10 +77,19 @@ export async function extractSubset({
     startNode = found
   }
 
+  // Wildcard universe excludes dev edges so behavior matches pnpm/yarn extractors,
+  // which only see prod+optional deps. Literal names still resolve against the
+  // full edge set below (so `lockfile-subset typescript` keeps working as before).
+  const nonDevDirectDeps: string[] = []
+  for (const [name, edge] of startNode.edgesOut) {
+    if (edge.type !== 'dev') nonDevDirectDeps.push(name)
+  }
+  const resolvedNames = expandWildcards(packageNames, nonDevDirectDeps)
+
   // BFS to collect transitive deps
   const keep = new Set<Node>()
 
-  for (const name of packageNames) {
+  for (const name of resolvedNames) {
     const edge: Edge | undefined = startNode.edgesOut.get(name)
     if (!edge?.to) {
       throw new Error(`Package "${name}" not found in lockfile`)
@@ -106,7 +116,7 @@ export async function extractSubset({
 
   // Build subset lockfile
   const dependencies: Record<string, string> = {}
-  for (const name of packageNames) {
+  for (const name of resolvedNames) {
     const edge = startNode.edgesOut.get(name)!
     dependencies[name] = edge.to!.version
   }

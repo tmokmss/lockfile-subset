@@ -2,6 +2,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import yaml from 'js-yaml'
 import { normalizeWorkspacePath } from './workspace-path.js'
+import { expandWildcards } from './wildcard.js'
 
 export interface PnpmExtractOptions {
   projectPath: string
@@ -92,11 +93,13 @@ export async function extractPnpmSubset({
     }
   }
 
+  const resolvedNames = expandWildcards(packageNames, Object.keys(rootDeps))
+
   // BFS through snapshots
   const keepSnapshots = new Set<string>()
   const keepPackages = new Set<string>()
 
-  for (const name of packageNames) {
+  for (const name of resolvedNames) {
     const dep = rootDeps[name]
     if (!dep) {
       throw new Error(`Package "${name}" not found in pnpm-lock.yaml`)
@@ -141,7 +144,7 @@ export async function extractPnpmSubset({
   // Use the original specifier in both manifest and lockfile so pnpm's
   // manifest↔lockfile cross-check succeeds.
   const dependencies: Record<string, string> = {}
-  for (const name of packageNames) {
+  for (const name of resolvedNames) {
     dependencies[name] = rootDeps[name].specifier
   }
 
@@ -163,7 +166,7 @@ export async function extractPnpmSubset({
   const subsetImporter: PnpmLockfile['importers']['.'] = {
     dependencies: {},
   }
-  for (const name of packageNames) {
+  for (const name of resolvedNames) {
     subsetImporter.dependencies![name] = {
       specifier: rootDeps[name].specifier,
       version: rootDeps[name].version,

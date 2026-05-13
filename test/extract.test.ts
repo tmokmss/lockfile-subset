@@ -67,6 +67,51 @@ describe('extractSubset', () => {
     const names = result.collected.map((c) => c.name)
     expect(names).not.toContain('typescript')
   })
+
+  it('should expand a wildcard against direct dependencies', async () => {
+    const result = await extractSubset({
+      projectPath: FIXTURE_BASIC,
+      packageNames: ['@prisma/*'],
+    })
+
+    expect(result.packageJson.dependencies).toHaveProperty('@prisma/client')
+    expect(result.packageJson.dependencies).not.toHaveProperty('prisma')
+    expect(result.packageJson.dependencies).not.toHaveProperty('chalk')
+  })
+
+  it('should expand a wildcard matching every direct dependency', async () => {
+    const result = await extractSubset({
+      projectPath: FIXTURE_BASIC,
+      packageNames: ['*'],
+    })
+
+    // basic fixture has 4 direct prod deps (devDependencies are excluded)
+    expect(Object.keys(result.packageJson.dependencies).sort()).toEqual([
+      '@prisma/client',
+      'chalk',
+      'express',
+      'prisma',
+    ])
+  })
+
+  it('should mix wildcards with literal names', async () => {
+    const result = await extractSubset({
+      projectPath: FIXTURE_BASIC,
+      packageNames: ['@prisma/*', 'chalk'],
+    })
+
+    expect(result.packageJson.dependencies).toHaveProperty('@prisma/client')
+    expect(result.packageJson.dependencies).toHaveProperty('chalk')
+  })
+
+  it('should throw when a wildcard matches no direct dependency', async () => {
+    await expect(
+      extractSubset({
+        projectPath: FIXTURE_BASIC,
+        packageNames: ['@aws-sdk/*'],
+      }),
+    ).rejects.toThrow(/did not match/)
+  })
 })
 
 describe('lockfile version support', () => {
