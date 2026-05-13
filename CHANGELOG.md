@@ -1,3 +1,10 @@
+## [1.3.1](https://github.com/tmokmss/lockfile-subset/compare/v1.3.0...v1.3.1) (2026-05-13)
+
+
+### Bug Fixes
+
+* **yarn:** emit root workspace entry for Berry lockfile ([#11](https://github.com/tmokmss/lockfile-subset/issues/11)) ([6e36830](https://github.com/tmokmss/lockfile-subset/commit/6e36830130bfcab3ef4589dac01d6eb4167e6cc4))
+
 # [1.3.0](https://github.com/tmokmss/lockfile-subset/compare/v1.2.1...v1.3.0) (2026-05-12)
 
 
