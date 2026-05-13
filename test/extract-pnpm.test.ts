@@ -56,6 +56,15 @@ describe('extractPnpmSubset', () => {
     expect(result.packageJson.dependencies).not.toHaveProperty('ms')
   })
 
+  it('should expand a wildcard matching multiple direct dependencies', async () => {
+    const result = await extractPnpmSubset({
+      projectPath: FIXTURE_PNPM_V9,
+      packageNames: ['*'],
+    })
+
+    expect(Object.keys(result.packageJson.dependencies).sort()).toEqual(['chalk', 'ms'])
+  })
+
   it('should throw when wildcard matches nothing', async () => {
     await expect(
       extractPnpmSubset({

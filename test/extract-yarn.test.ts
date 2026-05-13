@@ -57,6 +57,15 @@ describe('extractYarnSubset (v1)', () => {
     expect(result.packageJson.dependencies).not.toHaveProperty('ms')
   })
 
+  it('should expand a wildcard matching multiple direct dependencies', async () => {
+    const result = await extractYarnSubset({
+      projectPath: FIXTURE_YARN_V1,
+      packageNames: ['*'],
+    })
+
+    expect(Object.keys(result.packageJson.dependencies).sort()).toEqual(['chalk', 'ms'])
+  })
+
   it('should not include devDependencies in transitive deps', async () => {
     const result = await extractYarnSubset({
       projectPath: FIXTURE_YARN_V1,
@@ -125,6 +134,15 @@ describe('extractYarnSubset (berry)', () => {
 
     expect(result.packageJson.dependencies).toHaveProperty('chalk')
     expect(result.packageJson.dependencies).not.toHaveProperty('ms')
+  })
+
+  it('should expand a wildcard matching multiple direct dependencies', async () => {
+    const result = await extractYarnSubset({
+      projectPath: FIXTURE_YARN_BERRY,
+      packageNames: ['*'],
+    })
+
+    expect(Object.keys(result.packageJson.dependencies).sort()).toEqual(['chalk', 'ms'])
   })
 
   it('should not include devDependencies in transitive deps', async () => {

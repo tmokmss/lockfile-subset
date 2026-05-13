@@ -79,6 +79,21 @@ describe('extractSubset', () => {
     expect(result.packageJson.dependencies).not.toHaveProperty('chalk')
   })
 
+  it('should expand a wildcard matching every direct dependency', async () => {
+    const result = await extractSubset({
+      projectPath: FIXTURE_BASIC,
+      packageNames: ['*'],
+    })
+
+    // basic fixture has 4 direct prod deps (devDependencies are excluded)
+    expect(Object.keys(result.packageJson.dependencies).sort()).toEqual([
+      '@prisma/client',
+      'chalk',
+      'express',
+      'prisma',
+    ])
+  })
+
   it('should mix wildcards with literal names', async () => {
     const result = await extractSubset({
       projectPath: FIXTURE_BASIC,
