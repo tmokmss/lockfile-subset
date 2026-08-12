@@ -4,6 +4,7 @@ import { createRequire } from 'module'
 import yaml from 'js-yaml'
 import { normalizeWorkspacePath } from './workspace-path.js'
 import { expandWildcards } from './wildcard.js'
+import { applyResolutions, parseResolutions } from './resolutions.js'
 
 // @yarnpkg/lockfile is CJS-only. A normal default import works after bundling (tsdown handles
 // CJS interop), but breaks under vitest's native ESM loader where the named exports land on
@@ -36,6 +37,7 @@ export interface YarnExtractResult {
     name: string
     version: string
     dependencies: Record<string, string>
+    resolutions?: Record<string, string>
   }
   lockfileContent: string
   collected: Array<{ name: string; version: string }>
@@ -43,6 +45,18 @@ export interface YarnExtractResult {
 
 function detectYarnVersion(content: string): 1 | 2 {
   return content.includes('# yarn lockfile v1') ? 1 : 2
+}
+
+/**
+ * Yarn only honors `resolutions` from the project root manifest, so they are
+ * read from there even when extracting a workspace. Without them the output
+ * manifest no longer explains the overridden versions in the lockfile: Yarn 1
+ * silently re-resolves to a different version, Berry fails with YN0028.
+ */
+function readRootResolutions(projectPath: string): Record<string, string> | undefined {
+  const rootPkgJson = JSON.parse(readFileSync(join(projectPath, 'package.json'), 'utf8'))
+  const resolutions = rootPkgJson.resolutions as Record<string, string> | undefined
+  return resolutions && Object.keys(resolutions).length > 0 ? resolutions : undefined
 }
 
 // ── Yarn v1 ──
@@ -144,6 +158,11 @@ function extractV1({
     return true
   })
 
+  // Yarn 1 aliases the overridden entry under the original range
+  // ("ansi-styles@3.2.1, ansi-styles@^4.1.0:"), so the walk above already found
+  // the right entries — only the manifest field needs carrying over.
+  const resolutions = readRootResolutions(projectPath)
+
   return {
     type: 'yarn',
     yarnVersion: 1,
@@ -151,6 +170,7 @@ function extractV1({
       name: OUTPUT_PACKAGE_NAME,
       version: '1.0.0',
       dependencies,
+      ...(resolutions ? { resolutions } : {}),
     },
     lockfileContent: stringifyYarnLockV1(subset),
     collected: deduped,
@@ -201,6 +221,12 @@ function extractBerry({
 
   const resolvedNames = expandWildcards(packageNames, Object.keys(allDeps))
 
+  // Berry stores the rewritten descriptor, so every lookup below has to go
+  // through the same rewrite the resolutions field would have applied.
+  const resolutions = readRootResolutions(projectPath)
+  const resolutionPatterns = parseResolutions(resolutions)
+  const rootParent = { name: pkgJson.name as string }
+
   // BFS
   const keepOriginalKeys = new Set<string>()
   const visited = new Set<string>()
@@ -216,34 +242,36 @@ function extractBerry({
     }
 
     // Berry descriptors use "npm:" prefix
-    const descriptor = `${name}@npm:${range}`
-    const queue: string[] = [descriptor]
+    const descriptor = applyResolutions(`${name}@npm:${range}`, rootParent, resolutionPatterns)
+    const queue: Array<{ descriptor: string; parent: { name: string; range?: string } }> = [
+      { descriptor, parent: rootParent },
+    ]
 
     while (queue.length > 0) {
-      const desc = queue.shift()!
+      const { descriptor: desc } = queue.shift()!
       if (visited.has(desc)) continue
       visited.add(desc)
 
       const match = descriptorMap.get(desc)
-      if (!match) continue
-
-      keepOriginalKeys.add(match.originalKey)
-      collected.push({ name: parseDescriptorName(desc), version: match.entry.version })
-
-      if (match.entry.dependencies) {
-        for (const [depName, depRange] of Object.entries(match.entry.dependencies)) {
-          if (depRange.startsWith('workspace:')) continue
-          const depDesc = `${depName}@${depRange}`
-          if (!visited.has(depDesc)) queue.push(depDesc)
-        }
+      if (!match) {
+        throw new Error(
+          `Descriptor "${desc}" has no yarn.lock entry. If a "resolutions" entry applies to it, its pattern may not be supported.`,
+        )
       }
 
-      if (includeOptional && match.entry.optionalDependencies) {
-        for (const [depName, depRange] of Object.entries(match.entry.optionalDependencies)) {
-          if (depRange.startsWith('workspace:')) continue
-          const depDesc = `${depName}@${depRange}`
-          if (!visited.has(depDesc)) queue.push(depDesc)
-        }
+      keepOriginalKeys.add(match.originalKey)
+      const descName = parseDescriptorName(desc)
+      collected.push({ name: descName, version: match.entry.version })
+
+      const parent = { name: descName, range: desc.slice(descName.length + 1) }
+      const deps = {
+        ...match.entry.dependencies,
+        ...(includeOptional ? match.entry.optionalDependencies : {}),
+      }
+      for (const [depName, depRange] of Object.entries(deps)) {
+        if (depRange.startsWith('workspace:')) continue
+        const depDesc = applyResolutions(`${depName}@${depRange}`, parent, resolutionPatterns)
+        if (!visited.has(depDesc)) queue.push({ descriptor: depDesc, parent })
       }
     }
   }
@@ -354,6 +382,7 @@ function extractBerry({
       name: OUTPUT_PACKAGE_NAME,
       version: '1.0.0',
       dependencies,
+      ...(resolutions ? { resolutions } : {}),
     },
     lockfileContent: lines.join('\n'),
     collected: deduped,

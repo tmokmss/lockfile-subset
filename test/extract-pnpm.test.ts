@@ -7,6 +7,7 @@ import { join } from 'path'
 import { tmpdir } from 'os'
 
 const FIXTURE_PNPM_V9 = join(import.meta.dirname, 'fixtures', 'pnpm-v9')
+const FIXTURE_PNPM_OVERRIDES = join(import.meta.dirname, 'fixtures', 'pnpm-v9-overrides')
 
 describe('extractPnpmSubset', () => {
   it('should extract a single package with transitive deps', async () => {
@@ -96,6 +97,47 @@ describe('extractPnpmSubset', () => {
     expect(Object.keys(result.lockfileYaml.packages).length).toBeGreaterThan(0)
     expect(Object.keys(result.lockfileYaml.snapshots).length).toBeGreaterThan(0)
   })
+})
+
+describe('overrides', () => {
+  // pnpm needs no manifest-side counterpart: snapshots pin exact versions, so
+  // dropping the lockfile's `overrides` block keeps both sides consistent and
+  // the frozen-lockfile check still passes.
+  it('should collect the overridden version without emitting an overrides block', async () => {
+    const result = await extractPnpmSubset({
+      projectPath: FIXTURE_PNPM_OVERRIDES,
+      packageNames: ['chalk'],
+    })
+
+    expect(result.collected.find((c) => c.name === 'ansi-styles')?.version).toBe('3.2.1')
+    expect(result.collected.find((c) => c.name === 'color-convert')?.version).toBe('1.9.3')
+    expect(result.lockfileYaml).not.toHaveProperty('overrides')
+    expect(result.lockfileYaml.snapshots['chalk@4.1.2'].dependencies!['ansi-styles']).toBe('3.2.1')
+  })
+
+  it('should install the overridden version', async () => {
+    const result = await extractPnpmSubset({
+      projectPath: FIXTURE_PNPM_OVERRIDES,
+      packageNames: ['chalk'],
+    })
+
+    const tmpDir = mkdtempSync(join(tmpdir(), 'lockfile-subset-pnpm-overrides-'))
+
+    try {
+      writeOutput(tmpDir, result)
+      execSync('pnpm install --frozen-lockfile', { cwd: tmpDir, stdio: 'pipe' })
+
+      const installed = JSON.parse(
+        readFileSync(
+          join(tmpDir, 'node_modules', '.pnpm', 'ansi-styles@3.2.1', 'node_modules', 'ansi-styles', 'package.json'),
+          'utf8',
+        ),
+      )
+      expect(installed.version).toBe('3.2.1')
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true })
+    }
+  }, 30000)
 })
 
 describe('pnpm install integration', () => {
