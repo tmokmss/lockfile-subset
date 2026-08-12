@@ -16,6 +16,31 @@ function rewritePackageLocation(location: string, workspacePath: string): string
   return location
 }
 
+/**
+ * npm keeps `overrides` in package.json only — never in the lockfile — and
+ * re-checks every lockfile entry against the range its dependents declare when
+ * `npm ci` runs. Dropping them makes `npm ci` reject the subset with
+ * "lock file's x@1.0.0 does not satisfy x@2.0.0" whenever an override pushed a
+ * package outside that range, so they have to be carried over.
+ *
+ * `$name` references are resolved to the version the original lockfile picked:
+ * they point at a root dependency that the subset usually does not have.
+ */
+function copyOverrides(overrides: Record<string, unknown>, root: Node): Record<string, unknown> {
+  const copied: Record<string, unknown> = {}
+  for (const [name, value] of Object.entries(overrides)) {
+    if (value && typeof value === 'object') {
+      copied[name] = copyOverrides(value as Record<string, unknown>, root)
+    } else if (typeof value === 'string' && value.startsWith('$')) {
+      const referenced = root.edgesOut.get(value.slice(1))?.to?.version
+      copied[name] = referenced ?? value
+    } else {
+      copied[name] = value
+    }
+  }
+  return copied
+}
+
 export interface ExtractOptions {
   projectPath: string
   packageNames: string[]
@@ -30,6 +55,7 @@ export interface ExtractResult {
     name: string
     version: string
     dependencies: Record<string, string>
+    overrides?: Record<string, unknown>
   }
   lockfileJson: {
     name: string
@@ -146,12 +172,19 @@ export async function extractSubset({
     location: node.location,
   }))
 
+  // Overrides are declared once, in the project root package.json — never in a
+  // workspace's own manifest — so they are read from the tree root.
+  const rootOverrides = (tree.package as any)?.overrides as Record<string, unknown> | undefined
+  const overrides =
+    rootOverrides && Object.keys(rootOverrides).length > 0 ? copyOverrides(rootOverrides, tree) : undefined
+
   return {
     type: 'npm',
     packageJson: {
       name: 'lockfile-subset-output',
       version: '1.0.0',
       dependencies,
+      ...(overrides ? { overrides } : {}),
     },
     lockfileJson: {
       name: 'lockfile-subset-output',

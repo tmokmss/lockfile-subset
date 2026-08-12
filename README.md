@@ -95,6 +95,8 @@ Run `lockfile-subset --help` for the full list of options.
 
 Dev dependencies of each package are excluded from traversal. Optional dependencies are included by default (use `--no-optional` to exclude).
 
+npm `overrides` and yarn `resolutions` are carried over into the generated `package.json`, since both package managers keep them out of the lockfile and need them to accept an overridden version (`$name` references are resolved to the locked version). pnpm needs no equivalent — its lockfile already pins exact versions in `snapshots`.
+
 ## Supported lockfile formats
 
 | Package manager | Lockfile | Supported versions |

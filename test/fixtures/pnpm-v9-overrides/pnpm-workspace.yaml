@@ -1,0 +1,2 @@
+overrides:
+  chalk>ansi-styles: 3.2.1

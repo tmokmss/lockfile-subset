@@ -10,6 +10,7 @@ const FIXTURE_BASIC = join(import.meta.dirname, 'fixtures', 'basic')
 const FIXTURE_V1 = join(import.meta.dirname, 'fixtures', 'lockfile-v1')
 const FIXTURE_V2 = join(import.meta.dirname, 'fixtures', 'lockfile-v2')
 const FIXTURE_V3 = join(import.meta.dirname, 'fixtures', 'lockfile-v3')
+const FIXTURE_OVERRIDES = join(import.meta.dirname, 'fixtures', 'npm-overrides')
 
 describe('extractSubset', () => {
   it('should extract a single package with no transitive deps', async () => {
@@ -172,7 +173,74 @@ describe('lockfile version support', () => {
   })
 })
 
+describe('overrides', () => {
+  it('should carry overrides into the output package.json', async () => {
+    const result = await extractSubset({
+      projectPath: FIXTURE_OVERRIDES,
+      packageNames: ['chalk'],
+    })
+
+    expect(result.packageJson.overrides).toEqual({ 'ansi-styles': '3.2.1', ms: '2.1.3' })
+  })
+
+  it('should resolve $name references to the locked version', async () => {
+    const result = await extractSubset({
+      projectPath: FIXTURE_OVERRIDES,
+      packageNames: ['chalk'],
+    })
+
+    // "$ms" points at a root dependency the subset does not necessarily have.
+    expect(result.packageJson.overrides!.ms).toBe('2.1.3')
+  })
+
+  it('should collect the overridden version and its own deps', async () => {
+    const result = await extractSubset({
+      projectPath: FIXTURE_OVERRIDES,
+      packageNames: ['chalk'],
+    })
+
+    const ansiStyles = result.collected.find((c) => c.name === 'ansi-styles')
+    expect(ansiStyles?.version).toBe('3.2.1')
+    // ansi-styles@3 depends on color-convert@1, not the @4 line's color-convert@2
+    const colorConvert = result.collected.find((c) => c.name === 'color-convert')
+    expect(colorConvert?.version).toBe('1.9.3')
+  })
+
+  it('should omit overrides when the project declares none', async () => {
+    const result = await extractSubset({
+      projectPath: FIXTURE_BASIC,
+      packageNames: ['chalk'],
+    })
+
+    expect(result.packageJson.overrides).toBeUndefined()
+  })
+})
+
 describe('npm ci integration', () => {
+  it('should produce a lockfile that npm ci accepts with overrides applied', async () => {
+    const result = await extractSubset({
+      projectPath: FIXTURE_OVERRIDES,
+      packageNames: ['chalk'],
+    })
+
+    const tmpDir = mkdtempSync(join(tmpdir(), 'lockfile-subset-overrides-test-'))
+
+    try {
+      writeOutput(tmpDir, result)
+      execSync('npm ci', { cwd: tmpDir, stdio: 'pipe' })
+
+      const installed = JSON.parse(
+        readFileSync(join(tmpDir, 'node_modules', 'ansi-styles', 'package.json'), 'utf8'),
+      )
+      // Without the overrides field npm ci rejects the subset: 3.2.1 does not
+      // satisfy the ^4.1.0 that chalk declares.
+      expect(installed.version).toBe('3.2.1')
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true })
+    }
+  }, 30000)
+
+
   it('should produce a lockfile that npm ci accepts (from v2 source)', async () => {
     const result = await extractSubset({
       projectPath: FIXTURE_V2,
