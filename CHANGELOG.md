@@ -1,3 +1,10 @@
+## [1.4.1](https://github.com/tmokmss/lockfile-subset/compare/v1.4.0...v1.4.1) (2026-08-12)
+
+
+### Bug Fixes
+
+* carry npm overrides and yarn resolutions into the subset ([#13](https://github.com/tmokmss/lockfile-subset/issues/13)) ([41fc4de](https://github.com/tmokmss/lockfile-subset/commit/41fc4dec6fc10475975d1b1596bdf3370f72e293))
+
 # [1.4.0](https://github.com/tmokmss/lockfile-subset/compare/v1.3.1...v1.4.0) (2026-05-13)
 
 
