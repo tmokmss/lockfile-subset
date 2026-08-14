@@ -78,6 +78,14 @@ function snapshotKey(name: string, version: string): string {
  * the lockfile: build-script allowlists (both the pnpm 9/10 and pnpm 11
  * spellings), supply-chain policies, and platform selection.
  *
+ * Derived from pnpm's own list of install-affecting settings
+ * (WORKSPACE_STATE_SETTING_KEYS in
+ * https://github.com/pnpm/pnpm/blob/main/pnpm11/workspace/state/src/types.ts),
+ * minus keys mirrored from the lockfile's `settings`, keys the lockfile
+ * settings check compares (handled elsewhere), and workspace-linking keys
+ * meaningless for a single-importer output. Re-check against that list when
+ * new pnpm majors add settings.
+ *
  * Lockfile-checked fields (overrides, packageExtensions, catalogs, pnpmfile,
  * ignoredOptionalDependencies) are intentionally NOT carried: their effects
  * are already baked into the resolved snapshots, and omitting them from both
