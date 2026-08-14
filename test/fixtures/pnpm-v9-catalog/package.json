@@ -1,0 +1,11 @@
+{
+  "name": "fixture-catalog",
+  "version": "1.0.0",
+  "dependencies": {
+    "chalk": "catalog:",
+    "ms": "catalog:tools"
+  },
+  "devDependencies": {
+    "semver": "^7.5.0"
+  }
+}

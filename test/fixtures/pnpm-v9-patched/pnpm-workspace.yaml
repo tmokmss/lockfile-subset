@@ -1,0 +1,3 @@
+patchedDependencies:
+  ansi-styles@4.3.0: patches/ansi-styles@4.3.0.patch
+  ms@2.1.3: patches/ms@2.1.3.patch

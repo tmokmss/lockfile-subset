@@ -52,7 +52,7 @@ lockfile-subset chalk --dry-run
 lockfile-subset '@aws-sdk/*' sharp
 ```
 
-The lockfile type (npm, pnpm, or yarn) is auto-detected from the project directory. This generates a minimal `package.json` and lockfile in the output directory. Then run `npm ci`, `pnpm install --frozen-lockfile`, or `yarn install --frozen-lockfile` to install exactly those packages.
+The lockfile type (npm, pnpm, or yarn) is auto-detected from the project directory. This generates a minimal `package.json` and lockfile (for pnpm, also a `pnpm-workspace.yaml`) in the output directory. Then run `npm ci`, `pnpm install --frozen-lockfile`, or `yarn install --frozen-lockfile` to install exactly those packages.
 
 ### Dockerfile example
 
@@ -97,12 +97,14 @@ Dev dependencies of each package are excluded from traversal. Optional dependenc
 
 npm `overrides` and yarn `resolutions` are carried over into the generated `package.json`, since both package managers keep them out of the lockfile and need them to accept an overridden version (`$name` references are resolved to the locked version). pnpm needs no equivalent — its lockfile already pins exact versions in `snapshots`.
 
+For pnpm, the output is self-contained: pnpm [refuses a lockfile](https://github.com/pnpm/pnpm/blob/main/pnpm11/lockfile/settings-checker/src/getOutdatedLockfileSetting.ts) whose recorded settings don't match the project's configuration, so a `pnpm-workspace.yaml` matching the subset lockfile is always generated alongside it (it also carries `allowBuilds`, `minimumReleaseAge`, and similar install-behavior keys from the root config). `catalog:` specifiers are resolved to the catalog's specifier, and patches applying to subset packages are copied into the output.
+
 ## Supported lockfile formats
 
 | Package manager | Lockfile | Supported versions |
 |---|---|---|
 | npm | `package-lock.json` | v2 (npm 7-8), v3 (npm 9+) |
-| pnpm | `pnpm-lock.yaml` | v9 (pnpm 9-10) |
+| pnpm | `pnpm-lock.yaml` | v9 (pnpm 9-11) |
 | yarn | `yarn.lock` | v1 (Classic), v2+ (Berry) |
 
 ## Limitations

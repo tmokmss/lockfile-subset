@@ -1,0 +1,9 @@
+diff --git a/index.js b/index.js
+index ea734fb73820316ed1c0f6a2f6e96dce0e3eb6f0..eb2e5d490045547ec1d66e29027456a6317cf751 100644
+--- a/index.js
++++ b/index.js
+@@ -160,3 +160,4 @@ function plural(ms, msAbs, n, name) {
+   var isPlural = msAbs >= n * 1.5;
+   return Math.round(ms / n) + ' ' + name + (isPlural ? 's' : '');
+ }
++// lockfile-subset-test-patch ms
