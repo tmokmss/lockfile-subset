@@ -5,7 +5,7 @@ import { createRequire } from 'module'
 import { extractSubset } from './extract.js'
 import { extractPnpmSubset } from './extract-pnpm.js'
 import { extractYarnSubset } from './extract-yarn.js'
-import { writeOutput, type AnyExtractResult } from './write.js'
+import { writeOutput, PNPM_YAML_DUMP_OPTIONS, type AnyExtractResult } from './write.js'
 
 const require = createRequire(import.meta.url)
 const { version: VERSION } = require('../package.json')
@@ -238,10 +238,10 @@ async function main() {
     } else if (result.type === 'pnpm') {
       const yaml = (await import('js-yaml')).default
       console.log('\n--- pnpm-lock.yaml ---')
-      console.log(yaml.dump(result.lockfileYaml, { lineWidth: -1, noCompatMode: true }))
+      console.log(yaml.dump(result.lockfileYaml, PNPM_YAML_DUMP_OPTIONS))
       if (Object.keys(result.workspaceYaml).length > 0) {
         console.log('--- pnpm-workspace.yaml ---')
-        console.log(yaml.dump(result.workspaceYaml, { lineWidth: -1, noCompatMode: true }))
+        console.log(yaml.dump(result.workspaceYaml, PNPM_YAML_DUMP_OPTIONS))
       }
     } else {
       console.log('\n--- yarn.lock ---')

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractPnpmSubset } from '../src/extract-pnpm.js'
+import { extractPnpmSubset, type PnpmExtractResult } from '../src/extract-pnpm.js'
 import { writeOutput } from '../src/write.js'
 import { execSync } from 'child_process'
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'fs'
@@ -10,6 +10,18 @@ const FIXTURE_PNPM_V9 = join(import.meta.dirname, 'fixtures', 'pnpm-v9')
 const FIXTURE_PNPM_OVERRIDES = join(import.meta.dirname, 'fixtures', 'pnpm-v9-overrides')
 const FIXTURE_PNPM_CATALOG = join(import.meta.dirname, 'fixtures', 'pnpm-v9-catalog')
 const FIXTURE_PNPM_PATCHED = join(import.meta.dirname, 'fixtures', 'pnpm-v9-patched')
+
+/** Write the subset to a temp dir, run a frozen pnpm install there, then assert. */
+function installSubset(prefix: string, result: PnpmExtractResult, assert: (tmpDir: string) => void): void {
+  const tmpDir = mkdtempSync(join(tmpdir(), prefix))
+  try {
+    writeOutput(tmpDir, result)
+    execSync('pnpm install --frozen-lockfile', { cwd: tmpDir, stdio: 'pipe' })
+    assert(tmpDir)
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true })
+  }
+}
 
 describe('extractPnpmSubset', () => {
   it('should extract a single package with transitive deps', async () => {
@@ -123,12 +135,7 @@ describe('overrides', () => {
       packageNames: ['chalk'],
     })
 
-    const tmpDir = mkdtempSync(join(tmpdir(), 'lockfile-subset-pnpm-overrides-'))
-
-    try {
-      writeOutput(tmpDir, result)
-      execSync('pnpm install --frozen-lockfile', { cwd: tmpDir, stdio: 'pipe' })
-
+    installSubset('lockfile-subset-pnpm-overrides-', result, (tmpDir) => {
       const installed = JSON.parse(
         readFileSync(
           join(tmpDir, 'node_modules', '.pnpm', 'ansi-styles@3.2.1', 'node_modules', 'ansi-styles', 'package.json'),
@@ -136,9 +143,7 @@ describe('overrides', () => {
         ),
       )
       expect(installed.version).toBe('3.2.1')
-    } finally {
-      rmSync(tmpDir, { recursive: true, force: true })
-    }
+    })
   }, 30000)
 })
 
@@ -188,19 +193,12 @@ describe('catalogs', () => {
       packageNames: ['chalk', 'ms'],
     })
 
-    const tmpDir = mkdtempSync(join(tmpdir(), 'lockfile-subset-pnpm-catalog-'))
-
-    try {
-      writeOutput(tmpDir, result)
-      execSync('pnpm install --frozen-lockfile', { cwd: tmpDir, stdio: 'pipe' })
-
+    installSubset('lockfile-subset-pnpm-catalog-', result, (tmpDir) => {
       const installed = JSON.parse(
         readFileSync(join(tmpDir, 'node_modules', 'chalk', 'package.json'), 'utf8'),
       )
       expect(installed.version).toBe('4.1.2')
-    } finally {
-      rmSync(tmpDir, { recursive: true, force: true })
-    }
+    })
   }, 30000)
 })
 
@@ -239,12 +237,7 @@ describe('patchedDependencies', () => {
       packageNames: ['chalk'],
     })
 
-    const tmpDir = mkdtempSync(join(tmpdir(), 'lockfile-subset-pnpm-patched-'))
-
-    try {
-      writeOutput(tmpDir, result)
-      execSync('pnpm install --frozen-lockfile', { cwd: tmpDir, stdio: 'pipe' })
-
+    installSubset('lockfile-subset-pnpm-patched-', result, (tmpDir) => {
       const pnpmDir = join(tmpDir, 'node_modules', '.pnpm')
       const patchedDir = readdirSync(pnpmDir).find((d) => d.startsWith('ansi-styles@4.3.0_patch_hash='))
       expect(patchedDir).toBeDefined()
@@ -253,9 +246,7 @@ describe('patchedDependencies', () => {
         'utf8',
       )
       expect(installedSource).toContain('lockfile-subset-test-patch ansi-styles')
-    } finally {
-      rmSync(tmpDir, { recursive: true, force: true })
-    }
+    })
   }, 30000)
 })
 
@@ -266,14 +257,7 @@ describe('pnpm install integration', () => {
       packageNames: ['chalk', 'ms'],
     })
 
-    const tmpDir = mkdtempSync(join(tmpdir(), 'lockfile-subset-pnpm-test-'))
-
-    try {
-      writeOutput(tmpDir, result)
-
-      // pnpm install --frozen-lockfile should succeed
-      execSync('pnpm install --frozen-lockfile', { cwd: tmpDir, stdio: 'pipe' })
-
+    installSubset('lockfile-subset-pnpm-test-', result, (tmpDir) => {
       // Verify installed versions match what the importer resolved to in the lockfile
       const resolved: Record<string, string> = {}
       for (const [name, info] of Object.entries(
@@ -287,8 +271,6 @@ describe('pnpm install integration', () => {
         )
         expect(pkgJson.version).toBe(resolved[name])
       }
-    } finally {
-      rmSync(tmpDir, { recursive: true, force: true })
-    }
+    })
   }, 30000)
 })
