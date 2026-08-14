@@ -2,12 +2,14 @@ import { describe, it, expect } from 'vitest'
 import { extractPnpmSubset } from '../src/extract-pnpm.js'
 import { writeOutput } from '../src/write.js'
 import { execSync } from 'child_process'
-import { mkdtempSync, readFileSync, rmSync } from 'fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 
 const FIXTURE_PNPM_V9 = join(import.meta.dirname, 'fixtures', 'pnpm-v9')
 const FIXTURE_PNPM_OVERRIDES = join(import.meta.dirname, 'fixtures', 'pnpm-v9-overrides')
+const FIXTURE_PNPM_CATALOG = join(import.meta.dirname, 'fixtures', 'pnpm-v9-catalog')
+const FIXTURE_PNPM_PATCHED = join(import.meta.dirname, 'fixtures', 'pnpm-v9-patched')
 
 describe('extractPnpmSubset', () => {
   it('should extract a single package with transitive deps', async () => {
@@ -134,6 +136,123 @@ describe('overrides', () => {
         ),
       )
       expect(installed.version).toBe('3.2.1')
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true })
+    }
+  }, 30000)
+})
+
+describe('workspace yaml', () => {
+  it('should mirror the lockfile settings so the settings check passes', async () => {
+    const result = await extractPnpmSubset({
+      projectPath: FIXTURE_PNPM_V9,
+      packageNames: ['chalk'],
+    })
+
+    expect(result.workspaceYaml).toEqual(result.lockfileYaml.settings)
+  })
+
+  it('should carry install-behavior keys from the root pnpm-workspace.yaml', async () => {
+    const result = await extractPnpmSubset({
+      projectPath: FIXTURE_PNPM_CATALOG,
+      packageNames: ['chalk'],
+    })
+
+    expect(result.workspaceYaml.allowBuilds).toEqual(['esbuild'])
+    expect(result.workspaceYaml.minimumReleaseAge).toBe(1440)
+    // Lockfile-checked fields stay out of the generated config
+    expect(result.workspaceYaml).not.toHaveProperty('catalog')
+    expect(result.workspaceYaml).not.toHaveProperty('catalogs')
+    expect(result.workspaceYaml).not.toHaveProperty('overrides')
+  })
+})
+
+describe('catalogs', () => {
+  it('should resolve catalog: specifiers to the catalog entry specifier', async () => {
+    const result = await extractPnpmSubset({
+      projectPath: FIXTURE_PNPM_CATALOG,
+      packageNames: ['chalk', 'ms'],
+    })
+
+    // chalk uses the default catalog, ms uses the named catalog "tools"
+    expect(result.packageJson.dependencies.chalk).toBe('^4.1.2')
+    expect(result.packageJson.dependencies.ms).toBe('^2.1.3')
+    expect(result.lockfileYaml.importers['.'].dependencies!.chalk.specifier).toBe('^4.1.2')
+    expect(result.lockfileYaml.importers['.'].dependencies!.ms.specifier).toBe('^2.1.3')
+    expect(result.lockfileYaml).not.toHaveProperty('catalogs')
+  })
+
+  it('should install the catalog-pinned versions without catalog definitions', async () => {
+    const result = await extractPnpmSubset({
+      projectPath: FIXTURE_PNPM_CATALOG,
+      packageNames: ['chalk', 'ms'],
+    })
+
+    const tmpDir = mkdtempSync(join(tmpdir(), 'lockfile-subset-pnpm-catalog-'))
+
+    try {
+      writeOutput(tmpDir, result)
+      execSync('pnpm install --frozen-lockfile', { cwd: tmpDir, stdio: 'pipe' })
+
+      const installed = JSON.parse(
+        readFileSync(join(tmpDir, 'node_modules', 'chalk', 'package.json'), 'utf8'),
+      )
+      expect(installed.version).toBe('4.1.2')
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true })
+    }
+  }, 30000)
+})
+
+describe('patchedDependencies', () => {
+  it('should carry only the patches whose packages are in the subset', async () => {
+    const result = await extractPnpmSubset({
+      projectPath: FIXTURE_PNPM_PATCHED,
+      packageNames: ['chalk'],
+    })
+
+    // ansi-styles (transitive dep of chalk) is patched; ms is patched too but not extracted
+    expect(Object.keys(result.lockfileYaml.patchedDependencies ?? {})).toEqual(['ansi-styles@4.3.0'])
+    expect(result.workspaceYaml.patchedDependencies).toEqual({
+      'ansi-styles@4.3.0': 'patches/ansi-styles@4.3.0.patch',
+    })
+    expect(result.patchFiles).toHaveLength(1)
+    expect(result.patchFiles[0].relativePath).toBe('patches/ansi-styles@4.3.0.patch')
+  })
+
+  it('should carry patches of direct dependencies', async () => {
+    const result = await extractPnpmSubset({
+      projectPath: FIXTURE_PNPM_PATCHED,
+      packageNames: ['chalk', 'ms'],
+    })
+
+    expect(Object.keys(result.lockfileYaml.patchedDependencies ?? {}).sort()).toEqual([
+      'ansi-styles@4.3.0',
+      'ms@2.1.3',
+    ])
+    expect(result.patchFiles).toHaveLength(2)
+  })
+
+  it('should install with the patch applied', async () => {
+    const result = await extractPnpmSubset({
+      projectPath: FIXTURE_PNPM_PATCHED,
+      packageNames: ['chalk'],
+    })
+
+    const tmpDir = mkdtempSync(join(tmpdir(), 'lockfile-subset-pnpm-patched-'))
+
+    try {
+      writeOutput(tmpDir, result)
+      execSync('pnpm install --frozen-lockfile', { cwd: tmpDir, stdio: 'pipe' })
+
+      const pnpmDir = join(tmpDir, 'node_modules', '.pnpm')
+      const patchedDir = readdirSync(pnpmDir).find((d) => d.startsWith('ansi-styles@4.3.0_patch_hash='))
+      expect(patchedDir).toBeDefined()
+      const installedSource = readFileSync(
+        join(pnpmDir, patchedDir!, 'node_modules', 'ansi-styles', 'index.js'),
+        'utf8',
+      )
+      expect(installedSource).toContain('lockfile-subset-test-patch ansi-styles')
     } finally {
       rmSync(tmpDir, { recursive: true, force: true })
     }

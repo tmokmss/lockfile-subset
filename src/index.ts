@@ -239,6 +239,10 @@ async function main() {
       const yaml = (await import('js-yaml')).default
       console.log('\n--- pnpm-lock.yaml ---')
       console.log(yaml.dump(result.lockfileYaml, { lineWidth: -1, noCompatMode: true }))
+      if (Object.keys(result.workspaceYaml).length > 0) {
+        console.log('--- pnpm-workspace.yaml ---')
+        console.log(yaml.dump(result.workspaceYaml, { lineWidth: -1, noCompatMode: true }))
+      }
     } else {
       console.log('\n--- yarn.lock ---')
       console.log(result.lockfileContent)

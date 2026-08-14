@@ -1,0 +1,9 @@
+diff --git a/index.js b/index.js
+index 5d82581a13f9900f9dc653b2df9f0027ee8bdda1..b441fe59f9fe02e97f2b014f66a267268c57a980 100644
+--- a/index.js
++++ b/index.js
+@@ -161,3 +161,4 @@ Object.defineProperty(module, 'exports', {
+ 	enumerable: true,
+ 	get: assembleStyles
+ });
++// lockfile-subset-test-patch ansi-styles

@@ -1,4 +1,4 @@
-import { readFileSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
 import yaml from 'js-yaml'
 import { normalizeWorkspacePath } from './workspace-path.js'
@@ -12,9 +12,14 @@ export interface PnpmExtractOptions {
   workspacePath?: string
 }
 
+/** pnpm 11 records just the hash; pnpm 9/10 recorded { hash, path }. */
+type LockPatchEntry = string | { hash: string; path: string }
+
 interface PnpmLockfile {
   lockfileVersion: string
   settings?: Record<string, unknown>
+  catalogs?: Record<string, Record<string, { specifier: string; version: string }>>
+  patchedDependencies?: Record<string, LockPatchEntry>
   importers: Record<
     string,
     {
@@ -35,6 +40,15 @@ export interface PnpmExtractResult {
     dependencies: Record<string, string>
   }
   lockfileYaml: PnpmLockfile
+  /**
+   * Contents for a pnpm-workspace.yaml to place next to the subset, so the
+   * install context agrees with every field pnpm's lockfile settings check
+   * compares (getOutdatedLockfileSetting). Mirrors the lockfile's `settings`
+   * plus install-behavior keys carried from the root pnpm-workspace.yaml.
+   */
+  workspaceYaml: Record<string, unknown>
+  /** Patch files referenced by the subset, to copy into the output directory. */
+  patchFiles: Array<{ source: string; relativePath: string }>
   collected: Array<{ name: string; version: string }>
 }
 
@@ -56,6 +70,70 @@ function parseSnapshotKey(key: string): { name: string; version: string } {
 /** Build snapshot key from name and version */
 function snapshotKey(name: string, version: string): string {
   return `${name}@${version}`
+}
+
+/**
+ * Root pnpm-workspace.yaml keys copied verbatim into the subset's generated
+ * pnpm-workspace.yaml. These change install behavior but are not recorded in
+ * the lockfile: build-script allowlists (both the pnpm 9/10 and pnpm 11
+ * spellings), supply-chain policies, and platform selection.
+ *
+ * Lockfile-checked fields (overrides, packageExtensions, catalogs, pnpmfile,
+ * ignoredOptionalDependencies) are intentionally NOT carried: their effects
+ * are already baked into the resolved snapshots, and omitting them from both
+ * the subset lockfile and the generated config keeps pnpm's lockfile
+ * settings check passing.
+ */
+const CARRIED_WORKSPACE_KEYS = [
+  'allowBuilds',
+  'onlyBuiltDependencies',
+  'neverBuiltDependencies',
+  'ignoredBuiltDependencies',
+  'dangerouslyAllowAllBuilds',
+  'minimumReleaseAge',
+  'minimumReleaseAgeStrict',
+  'minimumReleaseAgeExclude',
+  'minimumReleaseAgeIgnoreMissingTime',
+  'trustPolicy',
+  'trustPolicyExclude',
+  'trustPolicyIgnoreAfter',
+  'supportedArchitectures',
+  'nodeLinker',
+] as const
+
+function readRootWorkspaceYaml(projectPath: string): Record<string, unknown> {
+  const path = join(projectPath, 'pnpm-workspace.yaml')
+  if (!existsSync(path)) return {}
+  return (yaml.load(readFileSync(path, 'utf8')) as Record<string, unknown>) ?? {}
+}
+
+/**
+ * Locate a patch file's path (relative to the workspace root) for a
+ * patchedDependencies key: pnpm-workspace.yaml (pnpm 10+), package.json
+ * `pnpm.patchedDependencies` (pnpm 9), or the lockfile entry itself
+ * (pnpm 9/10 lockfiles record { hash, path }).
+ */
+function findPatchPath(
+  projectPath: string,
+  rootWorkspaceYaml: Record<string, unknown>,
+  key: string,
+  lockEntry: LockPatchEntry,
+): string {
+  const fromWorkspace = (rootWorkspaceYaml.patchedDependencies as Record<string, string> | undefined)?.[key]
+  if (fromWorkspace) return fromWorkspace
+
+  const pkgJsonPath = join(projectPath, 'package.json')
+  if (existsSync(pkgJsonPath)) {
+    const pkgJson = JSON.parse(readFileSync(pkgJsonPath, 'utf8'))
+    const fromPkgJson = pkgJson.pnpm?.patchedDependencies?.[key]
+    if (fromPkgJson) return fromPkgJson
+  }
+
+  if (typeof lockEntry === 'object') return lockEntry.path
+
+  throw new Error(
+    `Patched dependency "${key}" is in pnpm-lock.yaml but its patch file path was not found in pnpm-workspace.yaml or package.json`,
+  )
 }
 
 export async function extractPnpmSubset({
@@ -142,10 +220,24 @@ export async function extractPnpmSubset({
   }
 
   // Use the original specifier in both manifest and lockfile so pnpm's
-  // manifest↔lockfile cross-check succeeds.
+  // manifest↔lockfile cross-check succeeds. `catalog:` specifiers are
+  // replaced with the catalog's own specifier, because the subset drops the
+  // lockfile's `catalogs` section and installs without catalog definitions.
+  const resolveSpecifier = (name: string, specifier: string): string => {
+    if (!specifier.startsWith('catalog:')) return specifier
+    const catalogName = specifier.slice('catalog:'.length) || 'default'
+    const entry = lockfile.catalogs?.[catalogName]?.[name]
+    if (!entry) {
+      throw new Error(
+        `Catalog entry for "${name}" ("${specifier}") not found in pnpm-lock.yaml`,
+      )
+    }
+    return entry.specifier
+  }
+
   const dependencies: Record<string, string> = {}
   for (const name of resolvedNames) {
-    dependencies[name] = rootDeps[name].specifier
+    dependencies[name] = resolveSpecifier(name, rootDeps[name].specifier)
   }
 
   // Build subset lockfile
@@ -168,8 +260,51 @@ export async function extractPnpmSubset({
   }
   for (const name of resolvedNames) {
     subsetImporter.dependencies![name] = {
-      specifier: rootDeps[name].specifier,
+      specifier: dependencies[name],
       version: rootDeps[name].version,
+    }
+  }
+
+  // Patched packages keep their `(patch_hash=…)` snapshot suffix, so the
+  // matching `patchedDependencies` entries and patch files must travel with
+  // the subset — otherwise pnpm installs them silently unpatched. The lockfile
+  // only records the hash (pnpm 11), so patch file paths come from the root
+  // config: pnpm-workspace.yaml, or package.json `pnpm.patchedDependencies`.
+  const rootWorkspaceYaml = readRootWorkspaceYaml(projectPath)
+  const patchHashes = new Set<string>()
+  for (const key of keepSnapshots) {
+    const match = key.match(/patch_hash=([^),]+)/)
+    if (match) patchHashes.add(match[1])
+  }
+  const subsetPatched: Record<string, LockPatchEntry> = {}
+  const patchPaths: Record<string, string> = {}
+  const patchFiles: PnpmExtractResult['patchFiles'] = []
+  for (const [key, entry] of Object.entries(lockfile.patchedDependencies ?? {})) {
+    const hash = typeof entry === 'string' ? entry : entry.hash
+    if (!patchHashes.has(hash)) continue
+    const path = findPatchPath(projectPath, rootWorkspaceYaml, key, entry)
+    const source = join(projectPath, path)
+    if (!existsSync(source)) {
+      throw new Error(`Patch file for "${key}" not found at ${source}`)
+    }
+    subsetPatched[key] = entry
+    patchPaths[key] = path
+    patchFiles.push({ source, relativePath: path })
+    patchHashes.delete(hash)
+  }
+  if (patchHashes.size > 0) {
+    throw new Error(
+      `Snapshots reference patch hashes with no matching patchedDependencies entry in pnpm-lock.yaml: ${[...patchHashes].join(', ')}`,
+    )
+  }
+
+  const workspaceYaml: Record<string, unknown> = { ...lockfile.settings }
+  if (Object.keys(subsetPatched).length > 0) {
+    workspaceYaml.patchedDependencies = patchPaths
+  }
+  for (const key of CARRIED_WORKSPACE_KEYS) {
+    if (rootWorkspaceYaml[key] !== undefined) {
+      workspaceYaml[key] = rootWorkspaceYaml[key]
     }
   }
 
@@ -188,10 +323,13 @@ export async function extractPnpmSubset({
     lockfileYaml: {
       lockfileVersion: lockfile.lockfileVersion,
       settings: lockfile.settings,
+      ...(Object.keys(subsetPatched).length > 0 ? { patchedDependencies: subsetPatched } : {}),
       importers: { '.': subsetImporter },
       packages: subsetPackages,
       snapshots: subsetSnapshots,
     },
+    workspaceYaml,
+    patchFiles,
     collected,
   }
 }
