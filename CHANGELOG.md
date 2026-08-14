@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/tmokmss/lockfile-subset/compare/v1.4.1...v1.5.0) (2026-08-14)
+
+
+### Features
+
+* self-contained pnpm output (workspace yaml, catalogs, patches) ([#14](https://github.com/tmokmss/lockfile-subset/issues/14)) ([9b96590](https://github.com/tmokmss/lockfile-subset/commit/9b9659081382451ceeeed40b6ff4667e2fa449f4))
+
 ## [1.4.1](https://github.com/tmokmss/lockfile-subset/compare/v1.4.0...v1.4.1) (2026-08-12)
 
 
