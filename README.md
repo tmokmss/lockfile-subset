@@ -52,7 +52,7 @@ lockfile-subset chalk --dry-run
 lockfile-subset '@aws-sdk/*' sharp
 ```
 
-The lockfile type (npm, pnpm, or yarn) is auto-detected from the project directory. This generates a minimal `package.json` and lockfile in the output directory (plus a `pnpm-workspace.yaml` and any referenced patch files for pnpm — see below). Then run `npm ci`, `pnpm install --frozen-lockfile`, or `yarn install --frozen-lockfile` to install exactly those packages.
+The lockfile type (npm, pnpm, or yarn) is auto-detected from the project directory. This generates a minimal `package.json` and lockfile (for pnpm, also a `pnpm-workspace.yaml`) in the output directory. Then run `npm ci`, `pnpm install --frozen-lockfile`, or `yarn install --frozen-lockfile` to install exactly those packages.
 
 ### Dockerfile example
 
@@ -97,14 +97,7 @@ Dev dependencies of each package are excluded from traversal. Optional dependenc
 
 npm `overrides` and yarn `resolutions` are carried over into the generated `package.json`, since both package managers keep them out of the lockfile and need them to accept an overridden version (`$name` references are resolved to the locked version). pnpm needs no equivalent — its lockfile already pins exact versions in `snapshots`.
 
-### Self-contained pnpm output
-
-pnpm validates the lockfile against the project's configuration before installing ([`getOutdatedLockfileSetting`](https://github.com/pnpm/pnpm/blob/main/pnpm11/lockfile/settings-checker/src/getOutdatedLockfileSetting.ts) compares catalogs, overrides, patched dependencies, package extensions, pnpmfile checksum, and several `settings.*` fields). A mismatch silently triggers full re-resolution — or fails the install under `--frozen-lockfile`. So the subset must not depend on configuration living outside the output directory. To keep it self-contained:
-
-- A **`pnpm-workspace.yaml` is generated** next to the lockfile. It mirrors the `settings` recorded in the lockfile (e.g. `injectWorkspacePackages`, `autoInstallPeers`) and carries install-behavior keys from the root `pnpm-workspace.yaml` that are not recorded in the lockfile: build-script allowlists (`allowBuilds`, `onlyBuiltDependencies`, …), supply-chain policies (`minimumReleaseAge`, `trustPolicy`, …), `supportedArchitectures`, and `nodeLinker`.
-- **`catalog:` specifiers are resolved** to the catalog entry's own specifier, so the subset installs without any catalog definitions.
-- **Patched dependencies travel with the subset**: `patchedDependencies` entries whose packages are part of the subset are kept in the lockfile and the generated config, and the patch files are copied into the output directory.
-- `overrides`, `packageExtensions`, and pnpmfile effects are already baked into the resolved snapshots, so they are intentionally dropped from both the lockfile and the generated config — pnpm's settings check passes with both sides empty.
+For pnpm, the output is self-contained: pnpm [refuses a lockfile](https://github.com/pnpm/pnpm/blob/main/pnpm11/lockfile/settings-checker/src/getOutdatedLockfileSetting.ts) whose recorded settings don't match the project's configuration, so a `pnpm-workspace.yaml` matching the subset lockfile is always generated alongside it (it also carries `allowBuilds`, `minimumReleaseAge`, and similar install-behavior keys from the root config). `catalog:` specifiers are resolved to the catalog's specifier, and patches applying to subset packages are copied into the output.
 
 ## Supported lockfile formats
 
